@@ -10,7 +10,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { agentFileRef } from "@/lib/agentRef";
 import {
-  projectReorderGap,
+  headerProjects,
   useRunningProjects,
 } from "@/modules/spaces/lib/projectTabs";
 import { consumeLaunchCommand, getLaunchDir } from "@/lib/launchDir";
@@ -178,7 +178,7 @@ export default function App() {
     allocId,
     booted,
     replaceTabs,
-    reorderTabByGap,
+    moveProject,
     removeTabsForSpace,
     markBooted,
     setActiveSpaceForNewTabs,
@@ -334,22 +334,6 @@ export default function App() {
   );
 
   const runningProjects = useRunningProjects(tabs);
-  const headerTabs = useMemo(
-    () =>
-      tabs.filter(
-        (t): t is TerminalTab =>
-          t.kind === "terminal" && runningProjects.has(t.id),
-      ),
-    [tabs, runningProjects],
-  );
-
-  const reorderHeaderProject = useCallback(
-    (id: number, gap: number) => {
-      const fullGap = projectReorderGap(tabs, headerTabs, id, gap);
-      if (fullGap !== null) reorderTabByGap(id, fullGap, "all");
-    },
-    [tabs, headerTabs, reorderTabByGap],
-  );
 
   // ALL terminal tabs across every group: the phone's switcher lists every
   // group's terminals, not just the currently active group's.
@@ -414,6 +398,10 @@ export default function App() {
     inheritedCwdForNewTab,
   } = useWorkspaceCwd(activeTab, tabs, launchCwd ?? home);
   const currentOwnerTabId = currentOwnerTab?.id ?? null;
+  const headerTabs = useMemo(
+    () => headerProjects(tabs, runningProjects, currentOwnerTabId),
+    [tabs, runningProjects, currentOwnerTabId],
+  );
 
   useWindowTitle(activeTab, explorerRoot);
 
@@ -1371,9 +1359,32 @@ export default function App() {
     }, 0);
   }, []);
 
-  const handleSwitchGroup = useCallback((id: string) => {
-    useSpaces.getState().setActive(id);
-  }, []);
+  const handleMoveProject = useCallback(
+    (id: number, spaceId: string, beforeId: number | null) => {
+      const current = tabsRef.current.find((tab) => tab.id === id);
+      if (current?.kind !== "terminal") return;
+      const state = useSpaces.getState();
+      const source = state.spaces.find((space) => space.id === current.spaceId);
+      const target = state.spaces.find((space) => space.id === spaceId);
+      if (!source || !target) return;
+      if (workspaceScopeKey(source.env) !== workspaceScopeKey(target.env)) {
+        toast.error("不能在不同运行环境之间移动项目", {
+          description: "本机与 WSL、不同 WSL 发行版的终端不能直接迁移。",
+        });
+        return;
+      }
+      const active = tabsRef.current.find((tab) => tab.id === activeId);
+      moveProject(id, spaceId, beforeId);
+      if (
+        active?.id === id ||
+        (active?.ownerTabId === id && active.spaceId === source.id)
+      ) {
+        state.setActive(spaceId);
+        setActiveSpaceForNewTabs(spaceId);
+      }
+    },
+    [activeId, moveProject, setActiveSpaceForNewTabs],
+  );
 
   const handleSelectProject = useCallback(
     (project: TerminalTab) => {
@@ -1549,7 +1560,6 @@ export default function App() {
               onClose={handleClose}
               onPin={pinTab}
               onRename={handleRenameTab}
-              onReorder={reorderHeaderProject}
               onOverrideLanguage={setOverrideLanguage}
               headerRight={
                 <SessionHistoryMenu
@@ -1566,8 +1576,8 @@ export default function App() {
                   onSelectProject={handleSelectProject}
                   onRenameProject={handleRenameTab}
                   onCloseProject={handleClose}
+                  onMoveProject={handleMoveProject}
                   activeId={activeSpaceId}
-                  onSwitch={handleSwitchGroup}
                   onCreate={handleCreateGroup}
                   onRename={handleRenameGroup}
                   onDelete={(id) => void requestGroupDelete(id)}

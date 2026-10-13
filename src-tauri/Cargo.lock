@@ -264,7 +264,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "awei-work"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "argon2",
  "awei-work-control-protocol",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "awei-work-cli"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "awei-work-control-protocol",
  "dirs 6.0.0",
@@ -319,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "awei-work-control-protocol"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "serde",
  "serde_json",

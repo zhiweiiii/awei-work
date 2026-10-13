@@ -26,6 +26,7 @@ export type SerializedTab =
       blocks?: boolean;
       customTitle?: string;
       lastUsedAt?: number;
+      openedAt?: number;
       lastAgentSession?: AgentResume;
     }
   | { kind: "editor"; path: string; ownerTab?: number }
@@ -59,6 +60,10 @@ export function isSerializedTabs(value: unknown): value is SerializedTab[] {
     if (item.kind === "terminal") {
       return (
         validNode(item.tree, 0) &&
+        (item.openedAt === undefined ||
+          (typeof item.openedAt === "number" &&
+            Number.isSafeInteger(item.openedAt) &&
+            item.openedAt >= 0)) &&
         (item.lastUsedAt === undefined ||
           (typeof item.lastUsedAt === "number" &&
             Number.isFinite(item.lastUsedAt) &&
@@ -135,6 +140,7 @@ function serializeTab(tab: Tab): SerializedTab | null {
         kind: "terminal",
         tree: serializeNode(tab.paneTree, tab.activeLeafId),
         ...(tab.lastUsedAt !== undefined && { lastUsedAt: tab.lastUsedAt }),
+        ...(tab.openedAt !== undefined && { openedAt: tab.openedAt }),
         ...(tab.lastAgentSession && { lastAgentSession: tab.lastAgentSession }),
         ...(tab.blocks && { blocks: true }),
         ...(tab.customTitle !== undefined && { customTitle: tab.customTitle }),
@@ -241,6 +247,7 @@ function hydrateTab(
         cold: true,
         title,
         ...(s.lastUsedAt !== undefined && { lastUsedAt: s.lastUsedAt }),
+        ...(s.openedAt !== undefined && { openedAt: s.openedAt }),
         ...(s.lastAgentSession && { lastAgentSession: s.lastAgentSession }),
         cwd: firstLeafCwd,
         paneTree: tree,

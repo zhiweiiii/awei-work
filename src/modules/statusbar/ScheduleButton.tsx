@@ -170,14 +170,11 @@ export function ScheduleButton({ leafId }: Props) {
         <Button
           variant="ghost"
           size="icon"
-          className="relative size-6 text-muted-foreground hover:text-foreground"
+          className="size-6 text-muted-foreground hover:text-foreground"
           title="定时发送命令"
           aria-label="定时发送命令"
         >
           <HugeiconsIcon icon={Clock01Icon} size={13} strokeWidth={2} />
-          {jobs.length > 0 ? (
-            <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-blue-500" />
-          ) : null}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" side="top" className="w-96 p-3">

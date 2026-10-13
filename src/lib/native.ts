@@ -231,6 +231,7 @@ export type ResetMode = "soft" | "mixed" | "hard";
 
 export type WebStatus = {
   running: boolean;
+  port: number;
   connections: number;
   failed_logins: number;
 };

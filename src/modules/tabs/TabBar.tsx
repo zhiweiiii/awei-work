@@ -75,7 +75,7 @@ type Props = {
   /** Set a terminal tab's custom label; empty string resets to default. */
   onRename: (id: number, title: string) => void;
   /** Move a dragged tab to a new position (insertion gap index 0..tabs.length). */
-  onReorder: (fromId: number, toGapIndex: number) => void;
+  onReorder?: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
   compact?: boolean;
 };
@@ -337,6 +337,7 @@ export function TabBar({
                     e.currentTarget.setPointerCapture(e.pointerId);
                   }}
                   onPointerMove={(e) => {
+                    if (!onReorder) return;
                     const st = drag.current;
                     if (!st || st.pointerId !== e.pointerId) return;
                     if (!st.active) {
@@ -356,7 +357,7 @@ export function TabBar({
                     const st = drag.current;
                     if (!st || st.pointerId !== e.pointerId) return;
                     if (st.active && dropGapRef.current !== null) {
-                      onReorder(st.fromId, dropGapRef.current);
+                      onReorder?.(st.fromId, dropGapRef.current);
                     } else if (st && !st.active) {
                       onSelect(t.id);
                     }

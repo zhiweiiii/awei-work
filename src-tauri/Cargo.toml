@@ -1,6 +1,6 @@
 [package]
 name = "awei-work"
-version = "1.0.6"
+version = "1.0.7"
 description = "awei-work, a terminal-first workspace for Claude Code and Codex"
 authors = ["zhiweiiii", "crynta"]
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ default-members = [".", "crates/awei-work-cli", "crates/awei-work-control-protoc
 resolver = "2"
 
 [workspace.package]
-version = "1.0.6"
+version = "1.0.7"
 edition = "2021"
 license = "Apache-2.0"
 

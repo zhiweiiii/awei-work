@@ -27,6 +27,8 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 支持多个单次/每日任务，按本机时区算下一次，不按固定 24 小时累加。应用必须运行，不唤醒睡眠或关机设备。
 
+底栏定时消息按钮不显示任务蓝点提醒，点击后查看任务列表与执行状态。
+
 - 终端：绑定 leaf，复用标准提交与去重。重启或原终端关闭后暂停，需手动绑定；已过期重新绑定会提示立即发送。
 - Codex 后台：无窗口 `codex exec --skip-git-repo-check --color never -`。
 - Claude 后台：无窗口 `claude -p --output-format text`。

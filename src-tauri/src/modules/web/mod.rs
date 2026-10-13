@@ -158,6 +158,7 @@ pub fn stop() {
 pub struct WebStatus {
     /// Whether the accept loop is listening (bound + not stopped).
     running: bool,
+    port: u16,
     /// Live WebSocket viewer connections right now.
     connections: usize,
     /// Consecutive failed logins since boot (drives the 5s lockout).
@@ -170,6 +171,7 @@ pub struct WebStatus {
 pub fn web_status() -> WebStatus {
     WebStatus {
         running: RUNNING.load(Ordering::Acquire),
+        port: PORT,
         connections: CONNECTIONS.load(Ordering::Acquire),
         failed_logins: FAILED_LOGINS.load(Ordering::Acquire),
     }

@@ -3,24 +3,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { native } from "@/lib/native";
+import { errorToast } from "@/lib/errorToast";
+import { native, type WebStatus } from "@/lib/native";
 import { Key01Icon, RouterIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useState } from "react";
-
-type Status = {
-  running: boolean;
-  connections: number;
-  failed_logins: number;
-};
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useEffect, useRef, useState } from "react";
 
 const POLL_MS = 2000;
 
 export function WebStatusBadge() {
-  const [status, setStatus] = useState<Status | null>(null);
+  const [status, setStatus] = useState<WebStatus | null>(null);
   const [error, setError] = useState(false);
+  const opening = useRef(false);
+  const mounted = useRef(false);
 
   useEffect(() => {
+    mounted.current = true;
     let disposed = false;
     let timer: number | undefined;
 
@@ -42,6 +41,7 @@ export function WebStatusBadge() {
 
     void poll();
     return () => {
+      mounted.current = false;
       disposed = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
@@ -50,13 +50,37 @@ export function WebStatusBadge() {
   const running = status?.running ?? false;
   const count = status?.connections ?? 0;
   const failedLogins = status?.failed_logins ?? 0;
+  const openMobilePage = async () => {
+    if (!running || opening.current) return;
+    opening.current = true;
+    try {
+      const current = await native.webStatus();
+      if (!mounted.current) return;
+      if (!current.running) {
+        setStatus(current);
+        throw new Error("远程服务未启动");
+      }
+      if (
+        !Number.isInteger(current.port) ||
+        current.port < 1 ||
+        current.port > 65535
+      ) {
+        throw new Error("远程服务端口无效");
+      }
+      await openUrl(`http://127.0.0.1:${current.port}/`);
+    } catch (cause) {
+      if (mounted.current) errorToast("打开手机端网页失败", cause);
+    } finally {
+      opening.current = false;
+    }
+  };
   const description =
     status === null
       ? error
         ? "远程服务状态暂不可用"
         : "正在读取远程服务状态"
       : running
-        ? `远程服务运行中，当前连接 ${count} 个${failedLogins > 0 ? `，密码错误 ${failedLogins} 次` : ""}`
+        ? `远程服务运行中，当前连接 ${count} 个${failedLogins > 0 ? `，密码错误 ${failedLogins} 次` : ""}，点击打开手机端网页`
         : "远程服务未启动";
 
   return (
@@ -65,7 +89,9 @@ export function WebStatusBadge() {
         <button
           type="button"
           aria-label={description}
-          className="terax-pill-in ml-1.5 flex h-6 shrink-0 cursor-default items-center gap-1 rounded-full border border-border/50 bg-accent/50 px-2 text-[10.5px] font-medium text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          aria-disabled={!running}
+          onClick={() => void openMobilePage()}
+          className={`terax-pill-in ml-1.5 flex h-6 shrink-0 ${running ? "cursor-pointer hover:text-foreground" : "cursor-default"} items-center gap-1 rounded-full border border-border/50 bg-accent/50 px-2 text-[10.5px] font-medium text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring`}
         >
           {running ? (
             <span className="size-1.5 rounded-full bg-emerald-500" />

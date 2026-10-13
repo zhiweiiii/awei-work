@@ -19,7 +19,7 @@ type Props = {
   onClose: (id: number) => void;
   onPin: (id: number) => void;
   onRename: (id: number, title: string) => void;
-  onReorder: (fromId: number, toGapIndex: number) => void;
+  onReorder?: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
   headerTabs?: ReactNode;
   /** Group (space) switcher rendered before the tab strip. */
@@ -48,15 +48,12 @@ export function Header({
   groupSwitcher,
   headerRight,
 }: Props) {
-
   return (
     <div
       data-tauri-drag-region
       className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-card select-none pr-0 pl-2"
     >
-      <div className="flex shrink-0 items-center gap-0.5">
-        {headerTabs}
-      </div>
+      <div className="flex shrink-0 items-center gap-0.5">{headerTabs}</div>
 
       <span className="mx-1 h-full w-px shrink-0 bg-border/70" />
 

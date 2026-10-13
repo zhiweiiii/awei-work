@@ -1,4 +1,5 @@
 import { pathIdentity } from "@/lib/pathIdentity";
+import { moveProjectTabs } from "./moveProject";
 import type { AgentResume } from "@/modules/spaces/lib/projectRestore";
 import { isMarkdownPath } from "@/lib/utils";
 import {
@@ -31,6 +32,7 @@ type TabBase = {
 };
 
 export type TerminalTab = TabBase & {
+  openedAt?: number;
   lastUsedAt?: number;
   lastAgentSession?: AgentResume;
   autoResume?: boolean;
@@ -559,6 +561,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   const nextIdRef = useRef(3);
   const activeSpaceIdRef = useRef(DEFAULT_SPACE_ID);
   const tabsRef = useRef(tabs);
+  const lastOpenedAt = useRef(0);
   const activeIdRef = useRef(activeId);
   // The terminal tab the user is currently working in — the owner for files
   // opened from the explorer/search while that tab is active. Seeded with the
@@ -584,9 +587,25 @@ export function useTabs(initial?: Partial<TerminalTab>) {
 
   const setTabs = useCallback(
     (update: Tab[] | ((current: Tab[]) => Tab[])) => {
-      const next =
+      let next =
         typeof update === "function" ? update(tabsRef.current) : update;
       if (next === tabsRef.current) return;
+      let latest = Math.max(Date.now(), lastOpenedAt.current);
+      for (const tab of next) {
+        if (tab.kind === "terminal" && tab.openedAt !== undefined)
+          latest = Math.max(latest, tab.openedAt);
+      }
+      const missing = next
+        .filter((tab) => tab.kind === "terminal" && tab.openedAt === undefined)
+        .sort((a, b) => a.id - b.id);
+      if (missing.length) {
+        const timestamps = new Map(missing.map((tab) => [tab.id, ++latest]));
+        next = next.map((tab) => {
+          const openedAt = timestamps.get(tab.id);
+          return openedAt === undefined ? tab : { ...tab, openedAt };
+        });
+      }
+      lastOpenedAt.current = latest;
       tabsRef.current = next;
       updateOwner(next, activeIdRef.current);
       setTabsState(next);
@@ -1368,6 +1387,13 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [setTabs],
   );
 
+  const moveProject = useCallback(
+    (id: number, spaceId: string, beforeId: number | null) => {
+      setTabs((current) => moveProjectTabs(current, id, spaceId, beforeId));
+    },
+    [setTabs],
+  );
+
   return {
     tabs,
     activeId,
@@ -1376,6 +1402,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     booted,
     replaceTabs,
     reorderTabByGap,
+    moveProject,
     removeTabsForSpace,
     markBooted,
     setActiveSpaceForNewTabs,

@@ -33,17 +33,16 @@ export function useRunningProjects(tabs: readonly Tab[]): Set<number> {
   );
 }
 
-export function projectReorderGap(
+export function headerProjects(
   tabs: readonly Tab[],
-  visible: readonly TerminalTab[],
-  fromId: number,
-  gap: number,
-): number | null {
-  const moved = visible.find((tab) => tab.id === fromId);
-  if (!moved || !Number.isInteger(gap) || gap < 0 || gap > visible.length)
-    return null;
-  const anchor = visible[gap] ?? visible[visible.length - 1];
-  if (!anchor) return null;
-  const index = tabs.findIndex((tab) => tab.id === anchor.id);
-  return index < 0 ? null : index + (gap === visible.length ? 1 : 0);
+  runningIds: ReadonlySet<number>,
+  selectedProjectId: number | null,
+): TerminalTab[] {
+  return tabs
+    .filter(
+      (tab): tab is TerminalTab =>
+        tab.kind === "terminal" &&
+        (tab.id === selectedProjectId || runningIds.has(tab.id)),
+    )
+    .sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0) || a.id - b.id);
 }
