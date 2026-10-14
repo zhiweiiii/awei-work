@@ -1,4 +1,3 @@
-pub mod control;
 pub mod fs;
 pub mod gateway;
 pub mod git;

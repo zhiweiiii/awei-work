@@ -44,7 +44,7 @@ useTabs 是标签事实来源，文件窗口同时按 spaceId/ownerTabId 隔离�
 
 手机共享同一 PTY，首屏向桌面取缓冲，不维护第二份 Rust 屏幕历史。对话优先读取确认绑定的 transcript，屏幕补实时选项；消息提交等待 writeAck，未知结果不自动重发，Codex bracketed paste 后 CR。手机不 claim 网格。
 
-Web 是远程 shell，个人密码、Argon2id、轮换令牌及可信网络不可省。Claude 网关与本地 CLI 控制面只监听回环、校验令牌，凭据不进日志。Markdown/网页/文件链接校验不替代完整沙箱。
+Web 是远程 shell，个人密码、Argon2id、轮换令牌及可信网络不可省。Claude 网关只监听回环、校验令牌，凭据不进日志。Markdown/网页/文件链接校验不替代完整沙箱。
 
 后台任务持久化原子保存，执行前记录 running；结果未知不自动重发。后台 CLI 请求可能产生费用，取消不能撤回远端请求。用量每 5 分钟查询并合并在途请求，失败不伪造 0%。
 

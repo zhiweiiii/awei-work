@@ -4,7 +4,7 @@
 
 这里只保留单层主题指南，不另建架构/历史子目录。
 
-- [架构与项目窗口](architecture.md)：模块入口、IPC、分组/文件归属、保存、Git 和本地 CLI。
+- [架构与项目窗口](architecture.md)：模块入口、IPC、分组/文件归属、保存和 Git。
 - [终端与输入](terminal.md)：PTY、ConPTY/Job、输入光标归属、渲染器池、WSL 与排障。
 - [手机访问](mobile.md)：认证、共享会话、首屏/实时输出、对话显示和发送确认。
 - [Agent 配套功能](agents.md)：Claude/Codex 历史与自动恢复、用量、定时任务和供应商网关。

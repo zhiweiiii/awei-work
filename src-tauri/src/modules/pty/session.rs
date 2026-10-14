@@ -517,7 +517,6 @@ pub fn spawn(
     workspace: WorkspaceEnv,
     blocks: bool,
     shell: Option<String>,
-    control: Option<crate::modules::control::ShellControlEnv>,
     gateway_provider: Option<String>,
     on_data: Option<Box<dyn Fn(Vec<u8>) + Send + Sync>>,
     on_exit: Option<Box<dyn Fn(i32) + Send + Sync>>,
@@ -540,14 +539,8 @@ pub fn spawn(
     let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
 
     let local_history = !workspace.is_wsl();
-    let (cmd, shell_kind) = shell_init::build_command(
-        cwd.clone(),
-        workspace,
-        blocks,
-        shell,
-        control,
-        gateway_provider,
-    )?;
+    let (cmd, shell_kind) =
+        shell_init::build_command(cwd.clone(), workspace, blocks, shell, gateway_provider)?;
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
 

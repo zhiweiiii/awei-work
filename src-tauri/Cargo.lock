@@ -264,10 +264,9 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "awei-work"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "argon2",
- "awei-work-control-protocol",
  "base64 0.22.1",
  "chrono",
  "dirs 6.0.0",
@@ -304,25 +303,6 @@ dependencies = [
  "tokio",
  "which",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "awei-work-cli"
-version = "1.0.7"
-dependencies = [
- "awei-work-control-protocol",
- "dirs 6.0.0",
- "libc",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "awei-work-control-protocol"
-version = "1.0.7"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]

@@ -12,7 +12,6 @@ use std::thread;
 use tauri::ipc::{Channel, Response};
 use tauri::Emitter;
 
-use crate::modules::control::ControlState;
 use crate::modules::workspace::{user_spawn_cwd_or_home, WorkspaceEnv, WorkspaceRegistry};
 pub(crate) use session::{valid_grid, Session, SizeOwner, WebMsg};
 
@@ -182,7 +181,6 @@ pub struct PtyOpened {
 pub async fn pty_open(
     app: tauri::AppHandle,
     state: tauri::State<'_, PtyState>,
-    control: tauri::State<'_, ControlState>,
     registry: tauri::State<'_, WorkspaceRegistry>,
     cols: u16,
     rows: u16,
@@ -198,13 +196,6 @@ pub async fn pty_open(
     let workspace = WorkspaceEnv::from_option(workspace);
     let blocks = blocks.unwrap_or(false);
     let cwd = user_spawn_cwd_or_home(&registry, cwd.as_deref(), &workspace);
-    // A Windows helper cannot execute inside WSL without explicit path and
-    // network translation. Do not inject credentials for a broken command.
-    let control_env = if workspace.is_wsl() {
-        None
-    } else {
-        pane_id.and_then(|pane_id| control.shell_env(pane_id))
-    };
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let data_cb = Some(Box::new(move |bytes: Vec<u8>| {
         if on_data.send(Response::new(bytes)).is_err() {
@@ -227,7 +218,6 @@ pub async fn pty_open(
             workspace,
             blocks,
             shell,
-            control_env,
             gateway_provider,
             data_cb,
             exit_cb,

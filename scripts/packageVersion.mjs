@@ -33,11 +33,7 @@ const manifestPaths = {
   cargoLock: resolve(root, "src-tauri/Cargo.lock"),
 };
 
-const workspacePackageNames = [
-  "awei-work",
-  "awei-work-cli",
-  "awei-work-control-protocol",
-];
+const workspacePackageNames = ["awei-work"];
 
 function readText(path) {
   return readFileSync(path, "utf8");
@@ -61,7 +57,7 @@ function readVersion() {
   if (
     typeof packageVersion !== "string" ||
     typeof tauriVersion !== "string" ||
-    cargoVersions.length !== 2 ||
+    cargoVersions.length !== 1 ||
     tauriVersion !== packageVersion ||
     cargoVersions.some((version) => version !== packageVersion) ||
     lockVersions.some((version) => version !== packageVersion)
@@ -95,8 +91,8 @@ function updateVersion(version) {
   const current = readVersionFromCargo(originals.cargo);
   const line = new RegExp(`^version = "${escapeRegex(current)}"$`, "gm");
   const cargo = originals.cargo.replace(line, `version = "${version}"`);
-  if ((cargo.match(/^version = "/gm) ?? []).length !== 2) {
-    throw new Error("Could not update both Cargo package versions.");
+  if ((cargo.match(/^version = "/gm) ?? []).length !== 1) {
+    throw new Error("Could not update Cargo package version.");
   }
   const updated = {
     package: replaceJsonVersion(originals.package, version),
@@ -142,8 +138,8 @@ function readVersionFromCargo(content) {
   const versions = [...content.matchAll(/^version = "([^"]+)"$/gm)].map(
     (match) => match[1],
   );
-  if (versions.length !== 2 || versions[0] !== versions[1]) {
-    throw new Error("Cargo package versions must match.");
+  if (versions.length !== 1) {
+    throw new Error("Expected one Cargo package version.");
   }
   return versions[0];
 }
@@ -154,7 +150,10 @@ function inputFiles() {
     ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...inputPaths],
     { cwd: root, encoding: "utf8" },
   );
-  return [...new Set(output.split("\0").filter((path) => path && path !== "src-tauri/web.html"))].sort();
+  const files = output.split("\0").filter((path) =>
+    path && path !== "src-tauri/web.html" && existsSync(resolve(root, path)),
+  );
+  return [...new Set(files)].sort();
 }
 
 function normalizedContent(relativePath, content, version) {

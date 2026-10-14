@@ -22,7 +22,7 @@ pnpm tauri dev
 
 前置：Rust（stable）、Node 20+、pnpm，以及 [Tauri 的 Windows 前置条件](https://tauri.app/start/prerequisites/)。
 
-开发时也可以用仓库根的 `热部署.ps1`：它会等 exe 解锁、等开发端口释放，再把 `pnpm tauri dev` 起成后台进程。
+开发直接运行 `pnpm tauri dev`，不再提供后台热部署脚本。
 
 架构和"怎么安全地改"见 [AWEI-WORK.md](AWEI-WORK.md) 与 [docs/ 索引](docs/README.md)。
 
@@ -179,7 +179,6 @@ src-tauri/                  Rust 后端
   src/
     lib.rs                  Tauri 命令注册
     modules/
-      control.rs            本地控制面（供随包 CLI 调用）
       fs/                   文件系统命令（读写、搜索、grep）
       git/                  版本管理命令
       history/              shell 历史集成
@@ -200,7 +199,6 @@ src/                        React 前端
   web/                      手机页面（独立 vite 构建，内联进二进制）
   modules/
     command-palette/        命令面板
-    control/                本地控制面的前端侧
     editor/                 CodeMirror 栈
     events/                 跨模块事件总线
     explorer/               文件树

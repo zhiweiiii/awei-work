@@ -4,7 +4,7 @@
 # 做的事:
 #   1. 把被占用的旧产物改名挪开 (不关闭正在运行的 awei-work)
 #   2. 类型检查
-#   3. 编译 CLI + 前端 + Rust 后端
+#   3. Build the frontend, mobile page and Rust backend
 #   4. 生成 NSIS 安装包
 #
 # 打包过程中可以继续用正在开着的 awei-work, 它跑的还是旧版本,
@@ -40,18 +40,13 @@ Step "挪开被占用的旧产物"
 # 改名留下的 *.locked-* 等下次打包 (那个进程退出后) 自动清掉.
 $outDirs = @(
     (Join-Path $root "src-tauri\target\release")
-    (Join-Path $root "src-tauri\binaries")
 )
-# 交叉编译目录 target/<triple>/release/ -- build-cli.mjs 的 CLI 产物在这
-$outDirs += Get-ChildItem (Join-Path $root "src-tauri\target") -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "*-windows-*" } |
-    ForEach-Object { Join-Path $_.FullName "release" }
 
 $locked = @()
 foreach ($dir in $outDirs) {
     if (-not (Test-Path $dir)) { continue }
     foreach ($f in Get-ChildItem $dir -File -ErrorAction SilentlyContinue) {
-        if ($f.Name -notlike "terax-*") { continue }
+        if ($f.Name -notlike "awei-work*") { continue }
         if ($f.Name -like "*.locked-*") {
             # 上次挪开的, 现在没人占了就删掉
             if (-not (Test-FileLocked $f.FullName)) {

@@ -18,7 +18,6 @@ import { native } from "@/lib/native";
 import { useZoom } from "@/lib/useZoom";
 import { isMarkdownPath } from "@/lib/utils";
 import { CommandPalette, createCommandItems } from "@/modules/command-palette";
-import { useControlBridge } from "@/modules/control";
 import type { GitDiffPaneHandle } from "@/modules/editor";
 import {
   type EditorPaneHandle,
@@ -255,12 +254,10 @@ export default function App() {
 
   const activeSpaceId = useSpaces((s) => s.activeId);
   const spacesHydrated = useSpaces((s) => s.hydrated);
-  const activeSpaceIdRef = useRef(activeSpaceId);
   useLayoutEffect(() => {
     tabsRef.current = tabs;
     activeIdRef.current = activeId;
-    activeSpaceIdRef.current = activeSpaceId;
-  }, [tabs, activeId, activeSpaceId]);
+  }, [tabs, activeId]);
   const sourceControlSpaceId = activeSpaceId ?? DEFAULT_SPACE_ID;
 
   useSpacesBoot({
@@ -1468,46 +1465,6 @@ export default function App() {
     },
     [openFileTab, currentOwnerTabId],
   );
-
-  const openControlFile = useCallback(
-    ({
-      path,
-      line,
-      focus,
-      spaceId,
-    }: {
-      path: string;
-      line?: number;
-      focus: boolean;
-      spaceId: string;
-    }) => {
-      if (focus && useSpaces.getState().activeId !== spaceId) {
-        useSpaces.getState().setActive(spaceId);
-      }
-      const id = openFileTab(path, true, {
-        spaceId,
-        activate: focus,
-      });
-      const editor = editorRefs.current.get(id);
-      if (line !== undefined) {
-        if (editor) editor.gotoLine(line, { focus });
-        else pendingEditorNavigation.current.set(id, { line, focus });
-      } else if (focus) {
-        if (editor) editor.focus();
-        else pendingEditorNavigation.current.set(id, { focus: true });
-      }
-      return id;
-    },
-    [openFileTab],
-  );
-
-  useControlBridge({
-    ready: spacesHydrated && launchCwdResolved,
-    tabsRef,
-    activeTabIdRef: activeIdRef,
-    activeSpaceIdRef,
-    onOpen: openControlFile,
-  });
 
   useEffect(() => {
     setLspNavigator({ openFile: openContentHit });

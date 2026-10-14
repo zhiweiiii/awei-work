@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use portable_pty::CommandBuilder;
 
-use crate::modules::control::ShellControlEnv;
 use crate::modules::workspace::{self, WorkspaceEnv};
 
 #[cfg(windows)]
@@ -65,13 +64,12 @@ pub fn build_command(
     workspace: WorkspaceEnv,
     blocks: bool,
     shell: Option<String>,
-    control: Option<ShellControlEnv>,
     gateway_provider: Option<String>,
 ) -> Result<(CommandBuilder, ShellQuoteKind), String> {
     let shell = sanitize_shell_override(shell);
     #[cfg(windows)]
     {
-        windows::build(cwd, workspace, blocks, shell, control, gateway_provider)
+        windows::build(cwd, workspace, blocks, shell, gateway_provider)
     }
 }
 
@@ -163,7 +161,6 @@ fn apply_common(
     cmd: &mut CommandBuilder,
     cwd: Option<String>,
     blocks: bool,
-    control: Option<&ShellControlEnv>,
     gateway_provider: Option<&str>,
 ) {
     cmd.env("TERM", "xterm-256color");
@@ -172,26 +169,6 @@ fn apply_common(
     apply_gateway(cmd, gateway_provider);
     if blocks {
         cmd.env("TERAX_BLOCKS", "1");
-    }
-    let clean_path = std::env::var_os("PATH");
-    if let Some(control) = control {
-        cmd.env("TERAX_CONTROL_ADDR", &control.address);
-        cmd.env("TERAX_CONTROL_TOKEN", &control.token);
-        cmd.env("TERAX_PANE_ID", control.pane_id.to_string());
-        if let Some(path) = &control.cli_path {
-            cmd.env("TERAX_CLI", path);
-        }
-        if let Some(bin_dir) = &control.cli_bin_dir {
-            let paths = std::iter::once(bin_dir.clone()).chain(
-                clean_path
-                    .as_deref()
-                    .into_iter()
-                    .flat_map(std::env::split_paths),
-            );
-            if let Ok(path) = std::env::join_paths(paths) {
-                cmd.env("PATH", path);
-            }
-        }
     }
     ensure_utf8_locale(cmd);
 
@@ -263,14 +240,13 @@ mod windows {
         workspace: WorkspaceEnv,
         blocks: bool,
         shell: Option<String>,
-        control: Option<super::ShellControlEnv>,
         gateway_provider: Option<String>,
     ) -> Result<(CommandBuilder, super::ShellQuoteKind), String> {
         if let WorkspaceEnv::Wsl { distro } = workspace {
             // A WSL shell cannot reach a Windows loopback listener by
             // 127.0.0.1, so routing it through the gateway would hand it a URL
             // that never connects.
-            let _ = (blocks, shell, control, gateway_provider);
+            let _ = (blocks, shell, gateway_provider);
             return build_wsl(cwd, distro);
         }
         let shell_path = shell
@@ -288,13 +264,7 @@ mod windows {
         let is_bash = shell_name == "bash.exe";
 
         let mut cmd = CommandBuilder::new(&shell_path);
-        super::apply_common(
-            &mut cmd,
-            cwd,
-            blocks,
-            control.as_ref(),
-            gateway_provider.as_deref(),
-        );
+        super::apply_common(&mut cmd, cwd, blocks, gateway_provider.as_deref());
 
         if is_powershell {
             match prepare_ps_profile() {

@@ -1,7 +1,7 @@
 pub mod modules;
 
 use modules::{
-    control, fs, gateway, git, history, lsp, pty, schedule, sessions, shell, usage, web, workspace,
+    fs, gateway, git, history, lsp, pty, schedule, sessions, shell, usage, web, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -226,8 +226,6 @@ pub fn run() {
     let (launch, launch_command) = parse_launch_target();
     let cli_dir = launch.dir.clone();
     workspace::init_launch_cwd(cli_dir.as_deref());
-    let control_state = control::ControlState::default();
-    let control_for_setup = control_state.clone();
 
     let builder = tauri::Builder::default();
     builder
@@ -250,14 +248,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
-        .setup(move |_app| {
-            if let Err(error) = control::start(_app.handle().clone(), control_for_setup.clone()) {
-                log::warn!("could not start awei-work control server: {error}");
-            }
-            Ok(())
-        })
         .manage(pty::PtyState::default())
-        .manage(control_state)
         .manage(fs::watch::FsWatchState::default())
         .manage(history::HistoryState::default())
         .manage(lsp::LspState::default())
@@ -388,8 +379,6 @@ pub fn run() {
             workspace::wsl_native_paths,
             workspace::workspace_authorize,
             workspace::workspace_current_dir,
-            control::control_frontend_ready,
-            control::control_respond,
             get_launch_dir,
             get_launch_files,
             get_launch_command,
@@ -429,9 +418,6 @@ pub fn run() {
                 tauri::RunEvent::Exit => {
                     if let Some(state) = app.try_state::<lsp::LspState>() {
                         state.kill_all();
-                    }
-                    if let Some(state) = app.try_state::<control::ControlState>() {
-                        state.shutdown();
                     }
                     web::stop();
                     gateway::stop();

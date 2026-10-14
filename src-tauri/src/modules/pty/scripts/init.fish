@@ -14,12 +14,6 @@ if set -q __TERAX_HOOKS_LOADED
 end
 set -g __TERAX_HOOKS_LOADED 1
 
-if set -q TERAX_CLI; and test -x "$TERAX_CLI"
-    function awei-work
-        command "$TERAX_CLI" $argv
-    end
-end
-
 # awei-work is a clean terminal; drop fish's default startup greeting. A user who
 # sets their own in config.fish (sourced after this) keeps it.
 function fish_greeting
