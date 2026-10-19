@@ -1,5 +1,6 @@
 import { pathIdentity } from "@/lib/pathIdentity";
 import { moveProjectTabs } from "./moveProject";
+import { parkProjectTabs } from "./parkProject";
 import type { AgentResume } from "@/modules/spaces/lib/projectRestore";
 import { isMarkdownPath } from "@/lib/utils";
 import {
@@ -32,6 +33,7 @@ type TabBase = {
 };
 
 export type TerminalTab = TabBase & {
+  parked?: boolean;
   openedAt?: number;
   lastUsedAt?: number;
   lastAgentSession?: AgentResume;
@@ -629,7 +631,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     if (!booted) return;
     setTabs((curr) => {
       const t = curr.find((x) => x.id === activeId);
-      if (!t) return curr;
+      if (!t || (t.kind === "terminal" && t.parked)) return curr;
       const ownerId = t.kind === "terminal" ? t.id : t.ownerTabId;
       const now = Date.now();
       return curr.map((x) =>
@@ -644,6 +646,61 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       );
     });
   }, [activeId, booted, setTabs]);
+
+  const activateProject = useCallback(
+    (id: number) => {
+      if (
+        !tabsRef.current.some((tab) => tab.id === id && tab.kind === "terminal")
+      )
+        return;
+      setTabs((current) =>
+        current.map((tab) =>
+          tab.id === id && tab.kind === "terminal"
+            ? {
+                ...tab,
+                parked: false,
+                cold: false,
+                lastUsedAt: Date.now(),
+                ...(tab.parked && { autoResume: false }),
+              }
+            : tab,
+        ),
+      );
+      setActiveId(id);
+    },
+    [setTabs, setActiveId],
+  );
+
+  const parkProject = useCallback(
+    async (id: number) => {
+      const project = tabsRef.current.find((tab) => tab.id === id);
+      if (project?.kind !== "terminal" || project.parked) return;
+      const leaves = leafIds(project.paneTree);
+      setTabs((current) =>
+        parkProjectTabs(current, id, () => nextIdRef.current++),
+      );
+      const active = tabsRef.current.find(
+        (tab) => tab.id === activeIdRef.current,
+      );
+      if (
+        active?.id === id ||
+        (active?.ownerTabId === id && active.spaceId === project.spaceId)
+      ) {
+        const fallback = [...tabsRef.current]
+          .reverse()
+          .find(
+            (tab) =>
+              tab.kind === "terminal" &&
+              tab.id !== id &&
+              tab.spaceId === project.spaceId &&
+              !tab.parked,
+          );
+        setActiveId(fallback?.id ?? id);
+      }
+      await Promise.all(leaves.map(disposeSession));
+    },
+    [setTabs, setActiveId],
+  );
 
   const allocId = useCallback(() => nextIdRef.current++, []);
 
@@ -662,7 +719,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
 
   const replaceTabs = useCallback(
     (next: Tab[], nextActiveId: number) => {
-      if (next.length === 0) return;
       setTabs(next);
       setActiveId(nextActiveId);
     },
@@ -1064,7 +1120,9 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           (canClose && !canClose(target, curr, activeIdRef.current))
         )
           return curr;
-        const fallback = nextActiveInSpace(curr, id);
+        const fallback =
+          nextActiveInSpace(curr, id) ??
+          (target.kind === "terminal" ? 0 : null);
         if (fallback === null) return curr;
         closed = true;
         if (target?.kind === "terminal") {
@@ -1150,9 +1208,10 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   const selectByIndex = useCallback(
     (idx: number, spaceId?: string) => {
       const t = spaceId ? pickTabBySpaceIndex(tabs, idx, spaceId) : tabs[idx];
-      if (t) setActiveId(t.id);
+      if (t?.kind === "terminal") activateProject(t.id);
+      else if (t) setActiveId(t.id);
     },
-    [tabs, setActiveId],
+    [tabs, setActiveId, activateProject],
   );
 
   /** Update a leaf's cwd; mirror to the tab's `cwd` when the leaf is active.
@@ -1403,6 +1462,8 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     replaceTabs,
     reorderTabByGap,
     moveProject,
+    parkProject,
+    activateProject,
     removeTabsForSpace,
     markBooted,
     setActiveSpaceForNewTabs,

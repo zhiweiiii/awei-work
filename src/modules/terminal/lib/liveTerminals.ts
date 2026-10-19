@@ -5,5 +5,7 @@ import type { Tab, TerminalTab } from "@/modules/tabs/lib/useTabs";
  * activated) are excluded so no PTY is spawned until first activation.
  */
 export function selectLiveTerminals(tabs: Tab[]): TerminalTab[] {
-  return tabs.filter((t): t is TerminalTab => t.kind === "terminal" && !t.cold);
+  return tabs.filter(
+    (t): t is TerminalTab => t.kind === "terminal" && !t.cold && !t.parked,
+  );
 }

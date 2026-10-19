@@ -23,8 +23,8 @@ export async function projectSessionSnapshot(
 ): Promise<Tab[]> {
   const liveIds = new Set(
     tabs
-      .filter((tab) => tab.kind === "terminal" && !tab.private)
-      .map((tab) => tab.id),
+      .filter((tab) => tab.kind === "terminal" && !tab.private && !tab.parked)
+      .map((tab) => (tab.kind === "terminal" ? tab.activeLeafId : -1)),
   );
   for (const id of saved.keys()) if (!liveIds.has(id)) saved.delete(id);
   const agents = useAgentActivityStore.getState().agents;
@@ -44,12 +44,12 @@ export async function projectSessionSnapshot(
         useAgentActivityStore.getState().agents[ptyId] !== agent
       )
         return;
-      saved.set(tab.id, result);
+      saved.set(tab.activeLeafId, result);
     }),
   );
   return tabs.map((tab) =>
-    tab.kind === "terminal" && saved.has(tab.id)
-      ? { ...tab, lastAgentSession: saved.get(tab.id) ?? undefined }
+    tab.kind === "terminal" && !tab.parked && saved.has(tab.activeLeafId)
+      ? { ...tab, lastAgentSession: saved.get(tab.activeLeafId) ?? undefined }
       : tab,
   );
 }

@@ -367,7 +367,10 @@ export function TabBar({
                   onLostPointerCapture={() => endDrag()}
                   onDoubleClick={() => isPreview && onPin(t.id)}
                   onAuxClick={(e) => {
-                    if (e.button === 1 && tabs.length > 1) {
+                    if (
+                      e.button === 1 &&
+                      (tabs.length > 1 || t.kind === "terminal")
+                    ) {
                       e.preventDefault();
                       e.stopPropagation();
                       onClose(t.id);
@@ -524,12 +527,21 @@ export function TabBar({
                       />
                     ) : null}
                   </span>
-                  {tabs.length > 1 && (
+                  {(tabs.length > 1 || t.kind === "terminal") && (
                     // biome-ignore lint/a11y/useSemanticElements: TabsTrigger already renders a button; nesting another breaks focus.
                     <span
                       role="button"
                       tabIndex={0}
-                      aria-label="Close tab"
+                      aria-label={
+                        t.kind === "terminal"
+                          ? "停止 agent 并收纳项目"
+                          : "关闭标签"
+                      }
+                      title={
+                        t.kind === "terminal"
+                          ? "停止 agent 并收纳项目"
+                          : "关闭标签"
+                      }
                       data-no-drag
                       onKeyDown={(event) => {
                         event.stopPropagation();
@@ -581,7 +593,7 @@ export function TabBar({
                         />
                         <span className="flex-1">Rename</span>
                       </ContextMenuItem>
-                      {tabs.length > 1 && (
+                      {(tabs.length > 1 || t.kind === "terminal") && (
                         <>
                           <ContextMenuSeparator />
                           <ContextMenuItem
@@ -593,7 +605,9 @@ export function TabBar({
                               size={13}
                               strokeWidth={1.75}
                             />
-                            <span className="flex-1">Close</span>
+                            <span className="flex-1">
+                              停止 agent 并收纳项目
+                            </span>
                           </ContextMenuItem>
                         </>
                       )}

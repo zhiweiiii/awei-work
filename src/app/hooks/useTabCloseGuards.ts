@@ -35,14 +35,14 @@ export function useTabCloseGuards({ tabs, disposeTab }: Params) {
 
   const handleClose = useCallback(
     async (id: number) => {
-      // Last tab in its space can't be closed (closeTab refuses). Skip the
-      // dialog entirely so confirming it doesn't appear to silently fail.
+      if (checking.current.has(id)) return;
+      const t = latestTabs.current.find((x) => x.id === id);
       if (
-        checking.current.has(id) ||
-        nextActiveInSpace(latestTabs.current, id) === null
+        !t ||
+        (t.kind !== "terminal" &&
+          nextActiveInSpace(latestTabs.current, id) === null)
       )
         return;
-      const t = latestTabs.current.find((x) => x.id === id);
       if (t?.kind === "editor" && t.dirty) {
         setPendingCloseTab(id);
         return;
@@ -60,11 +60,7 @@ export function useTabCloseGuards({ tabs, disposeTab }: Params) {
         } finally {
           checking.current.delete(id);
         }
-        if (
-          !mounted.current ||
-          nextActiveInSpace(latestTabs.current, id) === null
-        )
-          return;
+        if (!mounted.current) return;
         const current = latestTabs.current.find((tab) => tab.id === id);
         if (current?.kind !== "terminal") return;
         if (checks.some(Boolean) || current.paneTree !== t.paneTree) {

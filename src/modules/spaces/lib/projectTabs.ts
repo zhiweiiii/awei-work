@@ -13,7 +13,7 @@ export function runningProjectIds(
 ): Set<number> {
   const running = new Set<number>();
   for (const tab of tabs) {
-    if (tab.kind !== "terminal" || tab.cold) continue;
+    if (tab.kind !== "terminal" || tab.cold || tab.parked) continue;
     if (
       leafIds(tab.paneTree).some((leaf) => {
         const pty = ptyForLeaf(leaf);
@@ -42,6 +42,7 @@ export function headerProjects(
     .filter(
       (tab): tab is TerminalTab =>
         tab.kind === "terminal" &&
+        !tab.parked &&
         (tab.id === selectedProjectId || runningIds.has(tab.id)),
     )
     .sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0) || a.id - b.id);

@@ -264,7 +264,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "awei-work"
-version = "1.0.8"
+version = "1.0.10"
 dependencies = [
  "argon2",
  "base64 0.22.1",

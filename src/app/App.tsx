@@ -178,6 +178,8 @@ export default function App() {
     booted,
     replaceTabs,
     moveProject,
+    parkProject,
+    activateProject,
     removeTabsForSpace,
     markBooted,
     setActiveSpaceForNewTabs,
@@ -216,7 +218,9 @@ export default function App() {
     const t = tabs.find((x) => x.id === activeId);
     return t && t.kind === "terminal" ? t : null;
   }, [tabs, activeId]);
-  const activeLeafId = activeTerminalTab?.activeLeafId ?? null;
+  const activeLeafId = activeTerminalTab?.parked
+    ? null
+    : (activeTerminalTab?.activeLeafId ?? null);
   const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
   const editorRefs = useRef<Map<number, EditorPaneHandle>>(new Map());
   const previewRefs = useRef<Map<number, PreviewPaneHandle>>(new Map());
@@ -304,7 +308,10 @@ export default function App() {
       .spaces.find((s) => s.id === activeSpaceId);
     if (meta) void adoptWorkspaceEnv(meta.env);
     const inSpace = tabsRef.current.filter((t) => t.spaceId === activeSpaceId);
-    if (inSpace.length === 0) return;
+    if (inSpace.length === 0) {
+      if (activeId !== 0) setActiveId(0);
+      return;
+    }
     // Keep the active tab if it already belongs to the newly active space (a
     // cross-space jump set it explicitly).
     if (inSpace.some((t) => t.id === activeId)) return;
@@ -347,7 +354,7 @@ export default function App() {
     activateTab: (id, leafId, spaceId) => {
       useSpaces.getState().setActive(spaceId);
       setActiveSpaceForNewTabs(spaceId);
-      setActiveId(id);
+      activateProject(id);
       focusPane(id, leafId);
     },
   });
@@ -508,7 +515,9 @@ export default function App() {
   const { state: switcherState, step: stepSwitcher } = useTabSwitcher({
     getOrder: getSwitcherOrder,
     onCommit: (id) => {
-      if (tabsRef.current.some((t) => t.id === id)) setActiveId(id);
+      const tab = tabsRef.current.find((t) => t.id === id);
+      if (tab?.kind === "terminal") activateProject(id);
+      else if (tab) setActiveId(id);
     },
   });
 
@@ -994,8 +1003,14 @@ export default function App() {
       closeActivePane(activeId);
       return;
     }
+    if (t?.kind === "terminal") {
+      void parkProject(t.id).catch((error) =>
+        toast.error("未能确认所有终端已停止", { description: String(error) }),
+      );
+      return;
+    }
     void handleClose(activeId);
-  }, [activeId, closeActivePane, handleClose]);
+  }, [activeId, closeActivePane, handleClose, parkProject]);
 
   const [zenMode, setZenMode] = useState(false);
 
@@ -1391,10 +1406,19 @@ export default function App() {
       if (current?.kind !== "terminal") return;
       useSpaces.getState().setActive(current.spaceId);
       setActiveSpaceForNewTabs(current.spaceId);
-      setActiveId(current.id);
+      activateProject(current.id);
       focusMainView();
     },
-    [setActiveId, setActiveSpaceForNewTabs, focusMainView],
+    [activateProject, setActiveSpaceForNewTabs, focusMainView],
+  );
+
+  const handleParkProject = useCallback(
+    (id: number) => {
+      void parkProject(id).catch((error) => {
+        toast.error("未能确认所有终端已停止", { description: String(error) });
+      });
+    },
+    [parkProject],
   );
 
   const spacesList = useSpaces((s) => s.spaces);
@@ -1514,7 +1538,7 @@ export default function App() {
               onNewPreview={() => openPreviewTab("")}
               onNewEditor={() => setNewEditorOpen(true)}
               onNewGitGraph={openGitGraphFromContext}
-              onClose={handleClose}
+              onClose={handleParkProject}
               onPin={pinTab}
               onRename={handleRenameTab}
               onOverrideLanguage={setOverrideLanguage}
@@ -1677,6 +1701,14 @@ export default function App() {
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="relative min-h-0 flex-1">
                     <WorkspaceSurface
+                      onReopenProject={(id) => {
+                        const project = tabsRef.current.find(
+                          (tab) => tab.id === id,
+                        );
+                        if (project?.kind === "terminal")
+                          handleSelectProject(project);
+                      }}
+                      onNewProject={openNewTab}
                       spaces={spacesList}
                       tabs={tabs}
                       activeId={activeId}
@@ -1733,7 +1765,8 @@ export default function App() {
                         : (target.ownerTabId ?? null) !== scope.ownerId
                     )
                       return;
-                    setActiveId(id);
+                    if (target.kind === "terminal") activateProject(id);
+                    else setActiveId(id);
                     focusMainView();
                   }}
                   onClose={handleClose}

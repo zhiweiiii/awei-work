@@ -167,8 +167,8 @@ function ProjectRow({
       </button>
       <button
         type="button"
-        aria-label={`关闭项目 ${name}`}
-        title="关闭项目"
+        aria-label={`彻底关闭项目 ${name}`}
+        title="彻底关闭项目"
         onKeyDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.preventDefault();

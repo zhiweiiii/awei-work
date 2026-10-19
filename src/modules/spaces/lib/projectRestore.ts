@@ -31,7 +31,8 @@ export function recentProjects(
     active?.kind === "terminal" ? active.id : active?.ownerTabId;
   return tabs
     .filter(
-      (tab): tab is TerminalTab => tab.kind === "terminal" && !tab.private,
+      (tab): tab is TerminalTab =>
+        tab.kind === "terminal" && !tab.private && !tab.parked,
     )
     .sort(
       (a, b) =>

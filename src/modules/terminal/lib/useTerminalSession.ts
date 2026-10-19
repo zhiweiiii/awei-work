@@ -37,7 +37,11 @@ import {
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
 import "../block/block.css";
-import { ensureAgentActivityListener, isAgentActivePty } from "./agentActivity";
+import {
+  ensureAgentActivityListener,
+  isAgentActivePty,
+  useAgentActivityStore,
+} from "./agentActivity";
 import {
   acquireSlot,
   applyBackgroundActive,
@@ -578,7 +582,11 @@ async function leafHasForegroundJob(leafId: number): Promise<boolean> {
   try {
     return await invoke<boolean>("pty_has_foreground_job", { id: s.pty.id });
   } catch (e) {
-    console.error("[awei-work] pty_has_foreground_job failed for leaf", leafId, e);
+    console.error(
+      "[awei-work] pty_has_foreground_job failed for leaf",
+      leafId,
+      e,
+    );
     return true;
   }
 }
@@ -1199,9 +1207,9 @@ export async function leafHasForegroundProcess(
   }
 }
 
-export function disposeSession(leafId: number): void {
+export function disposeSession(leafId: number): Promise<void> {
   const s = sessions.get(leafId);
-  if (!s) return;
+  if (!s) return Promise.resolve();
   s.disposed = true;
   s.spawnEpoch += 1;
   cancelPromptConfirm(s);
@@ -1209,7 +1217,9 @@ export function disposeSession(leafId: number): void {
   disposeLeafSlot(leafId);
   s.hasSlot = false;
   s.snapshot = null;
-  if (s.pty) observePty(s.pty.close(), "close");
+  const closing = s.pty?.close() ?? Promise.resolve();
+  observePty(closing, "close");
+  if (s.pty) useAgentActivityStore.getState().clear(s.pty.id);
   s.pty = null;
   s.pendingInput = "";
   sessions.delete(leafId);
@@ -1224,6 +1234,7 @@ export function disposeSession(leafId: number): void {
       w.resolve();
     }
   }
+  return closing;
 }
 
 type Options = {

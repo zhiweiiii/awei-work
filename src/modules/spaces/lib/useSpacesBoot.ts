@@ -117,8 +117,10 @@ export function useSpacesBoot({
         const restoredHome = await adoptWorkspaceEnv(env);
         if (!mounted.current) return;
 
-        // Active space must never be empty, else its tab list shows nothing.
-        if (!restored.some((t) => t.spaceId === active)) {
+        if (
+          !states.has(active) &&
+          !restored.some((t) => t.spaceId === active)
+        ) {
           const cwd = freshTabCwd(env, restoredHome, launchCwd, home);
           restored.push(freshTerminalTab(active, cwd, allocId));
         }
@@ -135,10 +137,10 @@ export function useSpacesBoot({
 
         const inActive = restored.filter((t) => t.spaceId === active);
         const idx = states.get(active)?.activeTabIndex ?? 0;
-        const activeTab = inActive[idx] ?? inActive[0] ?? restored[0];
+        const activeTab = inActive[idx] ?? inActive[0];
         replaceTabs(
-          prepareProjectRestore(restored, activeTab.id),
-          activeTab.id,
+          prepareProjectRestore(restored, activeTab?.id ?? 0),
+          activeTab?.id ?? 0,
         );
       } catch (e) {
         console.error("[awei-work] spaces boot failed:", e);

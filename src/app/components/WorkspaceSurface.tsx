@@ -14,6 +14,8 @@ type GitDiffStackProps = ComponentProps<typeof GitDiffStack>;
 type GitHistoryStackProps = ComponentProps<typeof GitHistoryStack>;
 
 type Props = {
+  onReopenProject: (id: number) => void;
+  onNewProject: () => void;
   spaces: TerminalStackProps["spaces"];
   tabs: Tab[];
   activeId: number;
@@ -47,6 +49,8 @@ type Props = {
  * buffers, editor scroll, ...) when switching tabs.
  */
 export function WorkspaceSurface({
+  onReopenProject,
+  onNewProject,
   spaces,
   tabs,
   activeId,
@@ -80,6 +84,30 @@ export function WorkspaceSurface({
 
   return (
     <div className="relative h-full min-h-0">
+      {!activeTab ? (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+          <p>此分组暂无打开的项目</p>
+          <button
+            type="button"
+            className="rounded-md border border-border px-3 py-1.5 text-foreground hover:bg-accent"
+            onClick={onNewProject}
+          >
+            新建项目
+          </button>
+        </div>
+      ) : null}
+      {activeTab?.kind === "terminal" && activeTab.parked ? (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+          <p>项目已收纳，可从分组重新打开</p>
+          <button
+            type="button"
+            className="rounded-md border border-border px-3 py-1.5 text-foreground hover:bg-accent"
+            onClick={() => onReopenProject(activeTab.id)}
+          >
+            重新打开项目
+          </button>
+        </div>
+      ) : null}
       <div
         className={cn(
           "absolute inset-0 px-3 pt-2 pb-2",
