@@ -1,6 +1,6 @@
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
@@ -37,7 +37,7 @@ export function useContentSearch(
   enabled: boolean,
   options?: Options,
 ): AsyncQueryState<ContentHit> {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const workspaceKey = workspaceScopeKey(workspace);
   const run = useCallback(
     async (q: string): Promise<ContentHit[]> => {
@@ -54,7 +54,7 @@ export function useContentSearch(
         throw new Error("Workspace changed");
       return res.hits;
     },
-    [root, workspace, workspaceKey],
+    [root, workspaceKey],
   );
 
   return useAsyncQuery({

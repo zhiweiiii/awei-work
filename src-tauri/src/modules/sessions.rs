@@ -370,6 +370,7 @@ pub async fn agent_resume_command(
     id: String,
     workspace: Option<crate::modules::workspace::WorkspaceEnv>,
 ) -> Result<String, String> {
+    let _ = workspace;
     if !matches!(agent.as_str(), "claude" | "codex")
         || !valid_id(&id)
         || cwd.is_empty()
@@ -377,9 +378,6 @@ pub async fn agent_resume_command(
         || cwd.chars().any(char::is_control)
     {
         return Err("Invalid saved agent session".into());
-    }
-    if crate::modules::workspace::WorkspaceEnv::from_option(workspace).is_wsl() {
-        return Err("Automatic session restore is not available for WSL history".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
         resolve_session_file(&cwd, &agent, Some(&id), UNIX_EPOCH)
@@ -398,9 +396,7 @@ pub async fn agent_sessions(
     cwd: String,
     workspace: Option<crate::modules::workspace::WorkspaceEnv>,
 ) -> Result<Vec<Session>, String> {
-    if crate::modules::workspace::WorkspaceEnv::from_option(workspace).is_wsl() {
-        return Ok(Vec::new());
-    }
+    let _ = workspace;
     tauri::async_runtime::spawn_blocking(move || {
         let mut all = list_sessions(&cwd, "claude")?;
         all.extend(list_sessions(&cwd, "codex")?);

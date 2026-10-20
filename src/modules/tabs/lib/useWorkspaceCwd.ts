@@ -77,7 +77,7 @@ export function useWorkspaceCwd(
         currentTerminalTab.activeLeafId,
       ) ?? currentTerminalTab.cwd)
     : undefined;
-  const fallback = space?.root ?? (space?.env.kind === "wsl" ? null : home);
+  const fallback = space?.root ?? home;
   const explorerRoot = useMemo<string | null>(() => {
     return terminalCwd ?? lastTerminalCwd.current.get(scope) ?? fallback;
   }, [terminalCwd, scope, fallback]);

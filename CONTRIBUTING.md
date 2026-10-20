@@ -75,7 +75,7 @@ awei-work 把自己定位为**轻量、快、生产级**。每个 PR 都按这�
 - 推之前跑过 `cargo fmt`
 - 已知热路径没有性能回退：终端渲染器、PTY 流、版本管理、文件资源管理器
 - 没有无理由引入的重依赖（客户端 bundle 超过 50KB gzip，或 Rust 侧编译后超过 5MB）
-- **只做 Windows**：平台对等的要求限定在 Windows + WSL。没有明确决定不要重新引入 macOS / Linux 分支。
+- **只做 Windows**：平台范围限定 Windows 本机。没有明确决定不要重新引入 macOS / Linux 分支。
 - 改动文件系统访问、网络路径（**包括 web 终端桥接**）、IPC 命令的，要做安全评审
 
 **任何地方都不要用 em-dash**：代码、注释、提交信息、文档。
@@ -137,7 +137,7 @@ security(web): rotate session token on password change
 
 类型：`feat`、`fix`、`chore`、`docs`、`perf`、`refactor`、`build`、`ci`、`security`。
 
-常用 scope：`terminal`、`editor`、`explorer`、`pty`、`web`、`transcript`、`settings`、`tabs`、`shortcuts`、`ui`、`git`、`preview`、`lsp`、`windows`、`wsl`。
+常用 scope：`terminal`、`editor`、`explorer`、`pty`、`web`、`transcript`、`settings`、`tabs`、`shortcuts`、`ui`、`git`、`preview`、`lsp`、`windows`。
 
 PR 内部各个提交的信息可以自由发挥（会被 squash 或分组）。
 
@@ -189,7 +189,7 @@ src-tauri/                  Rust 后端
       shell/                一次性 / 会话 / 后台 shell 命令
       transcript/           读取 agent 自己的对话记录（Claude JSONL、opencode SQLite）
       web/                  内嵌 HTTP + WebSocket 桥接与认证
-      workspace.rs          WSL 桥、工作区环境、授权表
+      workspace.rs          本机路径与工作区授权表
 
 src/                        React 前端
   app/App.tsx               顶层协调者
@@ -217,7 +217,7 @@ src/                        React 前端
     terminal/               xterm.js 会话、OSC 处理、渲染器池
     theme/                  自研主题引擎与预设
     updater/                本仓库手动/签名更新 UI
-    workspace/              工作区环境切换
+    workspace/              本机工作区参数
 ```
 
 ## 常见问题

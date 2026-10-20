@@ -1,7 +1,6 @@
 import { errorToast } from "@/lib/errorToast";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { useWorkspaceEnvStore } from "@/modules/workspace";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { detectBinary } from "./detect";
 import { type LspPreset, serverForLanguage } from "./presets";
@@ -22,7 +21,6 @@ export function useLspHint(filePath: string | null): LspHint | null {
     langId: string | null;
   }>({ scope: null, langId: null });
   const langId = resolved.scope === scope ? resolved.langId : null;
-  const envKind = useWorkspaceEnvStore((s) => s.env.kind);
 
   useEffect(() => {
     if (!filePath) {
@@ -75,14 +73,14 @@ export function useLspHint(filePath: string | null): LspHint | null {
   );
 
   useEffect(() => {
-    if (preset && envKind === "local" && activation === undefined) {
+    if (preset && activation === undefined) {
       void detectBinary(preset.command).catch((error) =>
         errorToast("Could not detect language server", error),
       );
     }
-  }, [preset, envKind, activation]);
+  }, [preset, activation]);
 
-  if (!preset || envKind !== "local") return null;
+  if (!preset) return null;
   if (activation === "dismissed") return null;
   if (activation === "enabled") {
     if (session?.status === "error")

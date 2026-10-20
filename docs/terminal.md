@@ -32,11 +32,11 @@ shell 输入栏粘贴修改所属 leaf 草稿，不送 PTY；运行态保持原�
 
 `DormantRing` 只保存完全没有槽位的 leaf 输出，上限 1 MiB，溢出丢最旧完整边界。保留槽位直接继续解析；真正丢失槽位才回放快照，不能复制第二套独立滚动状态。
 
-## 路径、WSL 与历史
+## 路径与历史
 
 传给 Windows ConPTY 的 cwd 用原生分隔符，前端 OSC cwd 统一正斜杠。路径拒绝控制字符并按实际 PowerShell/POSIX/fish/cmd 引用；PowerShell 同时处理普通及弯单引号，cmd 不支持的 `%`/`!`/引号明确拒绝。
 
-Windows 附件进入 WSL 时，按目标 Session 发行版调用有界 `wslpath`，参数作为位置参数而非 shell 源码。同发行版 UNC 可还原 Linux 路径，跨发行版拒绝；转换返回后再次核对 Session/PTY。探测与转换有超时、输出上限及隐藏窗口。
+终端仅启动本机 Shell，保留 PowerShell、cmd 和原生 Git Bash；不再探测或启动子系统发行版，也不再转换子系统路径。
 
 命令历史在后台读取，默认使用 PSReadLine 历史。每个文件只读末尾 2 MiB，索引最多 20000 项；自定义 PSReadLine 路径不自动探测，无时间戳不伪造执行时间。
 

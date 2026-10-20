@@ -2,7 +2,7 @@ import { native, type GitStatusSnapshot } from "@/lib/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import {
@@ -27,7 +27,7 @@ export function useGitStatus(
   statuses: GitStatusSnapshot[] | null | undefined,
   enabled: boolean,
 ) {
-  const scopeKey = useWorkspaceEnvStore((s) => workspaceScopeKey(s.env));
+  const scopeKey = workspaceScopeKey(LOCAL_WORKSPACE);
   const [canonical, setCanonical] = useState<{
     root: string;
     scope: string;

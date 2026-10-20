@@ -630,14 +630,7 @@ configureRendererPool({
     const session = sessions.get(leafId);
     if (!session || session.disposed || session.shellExited) return null;
     const pty = session.pty;
-    const nativePaths =
-      session.workspace.kind === "wsl" &&
-      paths.some((path) => /^[A-Za-z]:[\\/]|^[\\/]{2}/.test(path))
-        ? await invoke<string[]>("wsl_native_paths", {
-            paths,
-            workspace: session.workspace,
-          })
-        : paths;
+    const nativePaths = paths;
     if (
       sessions.get(leafId) !== session ||
       session.disposed ||

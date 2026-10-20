@@ -1412,33 +1412,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [setTabs, setActiveId],
   );
 
-  const resetWorkspace = useCallback(
-    (cwd?: string) => {
-      const tabId = nextIdRef.current++;
-      const leafId = nextIdRef.current++;
-      let toDispose: number[] = [];
-      setTabs((curr) => {
-        toDispose = curr.flatMap((t) =>
-          t.kind === "terminal" ? leafIds(t.paneTree) : [],
-        );
-        return [
-          {
-            id: tabId,
-            kind: "terminal",
-            spaceId: activeSpaceIdRef.current,
-            title: "shell",
-            cwd,
-            paneTree: { kind: "leaf", id: leafId, cwd },
-            activeLeafId: leafId,
-          },
-        ];
-      });
-      setActiveId(tabId);
-      for (const lid of toDispose) disposeSession(lid);
-    },
-    [setTabs, setActiveId],
-  );
-
   const reorderTabByGap = useCallback(
     (fromId: number, toGapIndex: number, scope: "space" | "all" = "space") => {
       setTabs((prev) => reorderTabsByGap(prev, fromId, toGapIndex, scope));
@@ -1490,6 +1463,5 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     splitActivePane,
     closeActivePane,
     closePaneByLeaf,
-    resetWorkspace,
   };
 }

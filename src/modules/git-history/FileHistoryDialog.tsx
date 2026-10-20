@@ -25,7 +25,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorToast } from "@/lib/errorToast";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace/env";
 
@@ -101,7 +101,7 @@ export function FileHistoryDialog({
   const [copiedSha, setCopiedSha] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const diffRequestRef = useRef(0);
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const environmentKey = workspaceScopeKey(workspace);
   const scopeKey = JSON.stringify([open, repoRoot, path, environmentKey]);
   const scopeRef = useRef({ key: scopeKey });
@@ -147,7 +147,7 @@ export function FileHistoryDialog({
       setError(normalizeError(err));
       setLoadState("error");
     }
-  }, [repoRoot, path, current, workspace, scope]);
+  }, [repoRoot, path, current, scope]);
 
   useEffect(() => {
     if (!open) return;
@@ -188,7 +188,7 @@ export function FileHistoryDialog({
         setDiffEntry({ state: "error", error: normalizeError(err) });
       }
     },
-    [repoRoot, path, current, workspace],
+    [repoRoot, path, current],
   );
 
   const handleRowClick = useCallback(

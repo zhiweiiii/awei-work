@@ -10,7 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { File02Icon } from "@hugeicons/core-free-icons";
@@ -41,7 +41,7 @@ export function NewEditorDialog({
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const composingRef = useRef(false);
-  const workspace = useWorkspaceEnvStore((s) => s.env);
+  const workspace = LOCAL_WORKSPACE;
   const scopeKey = workspaceScopeKey(workspace);
   const identity = open ? `${scopeKey}\0${rootPath}` : null;
   const scopeRef = useRef({ identity });

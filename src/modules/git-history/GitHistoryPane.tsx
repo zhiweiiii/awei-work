@@ -37,7 +37,7 @@ import {
 import { useCommitSearch } from "@/modules/git-history/lib/useCommitSearch";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace/env";
 import {
@@ -263,7 +263,7 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
     { repoRoot, repos, onSwitchRepo, onOpenCommitFile },
     ref,
   ) {
-    const workspace = useWorkspaceEnvStore((state) => state.env);
+    const workspace = LOCAL_WORKSPACE;
     const environmentKey = workspaceScopeKey(workspace);
     const mountedRef = useRef(true);
     const current = useCallback(
@@ -467,7 +467,7 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
         setError(normalizeError(err));
         setLoadStatus("error");
       }
-    }, [author, branch, date, noMerges, repoRoot, current, workspace]);
+    }, [author, branch, date, noMerges, repoRoot, current]);
 
     const loadMore = useCallback(async () => {
       if (!current() || inflightMoreRef.current || endReached) return;
@@ -523,7 +523,7 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
       } finally {
         if (requestId === requestIdRef.current) inflightMoreRef.current = false;
       }
-    }, [commits, endReached, loadStatus, repoRoot, current, workspace]);
+    }, [commits, endReached, loadStatus, repoRoot, current]);
 
     useEffect(() => {
       mountedRef.current = true;
@@ -558,7 +558,7 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
       return () => {
         cancelled = true;
       };
-    }, [repoRoot, workspace, current]);
+    }, [repoRoot, current]);
 
     const handleScroll = useCallback(() => {
       const el = scrollRef.current;
@@ -639,7 +639,7 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
             filesInflightRef.current.delete(sha);
         }
       },
-      [repoRoot, workspace, current, bumpFiles],
+      [repoRoot, current, bumpFiles],
     );
 
     const handleRowClick = useCallback(
@@ -941,7 +941,7 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
 
 export const GitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
   function GitHistoryPane(props, ref) {
-    const workspace = useWorkspaceEnvStore((state) => state.env);
+    const workspace = LOCAL_WORKSPACE;
     return (
       <ScopedGitHistoryPane
         key={JSON.stringify([props.repoRoot, workspaceScopeKey(workspace)])}
@@ -1324,7 +1324,7 @@ function ContainedBranches({
   sha: string;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const environmentKey = workspaceScopeKey(workspace);
   const run = useCallback(async () => {
     if (currentWorkspaceScopeKey() !== environmentKey) return [];
@@ -1334,7 +1334,7 @@ function ContainedBranches({
       workspace,
     );
     return currentWorkspaceScopeKey() === environmentKey ? branches : [];
-  }, [repoRoot, sha, workspace, environmentKey]);
+  }, [repoRoot, sha, environmentKey]);
   const {
     results: branches,
     loading,

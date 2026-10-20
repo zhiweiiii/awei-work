@@ -2514,8 +2514,6 @@ fn scan_repos_inner(
 
     collect_git_dirs(
         &cwd.local_path,
-        &cwd.workspace,
-        &cwd.git_path,
         depth,
         &mut candidates,
         &mut scanned,
@@ -2545,8 +2543,6 @@ fn scan_repos_inner(
 
 fn collect_git_dirs(
     base: &Path,
-    workspace: &WorkspaceEnv,
-    git_base: &str,
     max_depth: usize,
     out: &mut Vec<(String, usize)>,
     scanned: &mut usize,
@@ -2577,24 +2573,12 @@ fn collect_git_dirs(
                 break;
             }
             *scanned += 1;
-            let git_path = if workspace.is_wsl() {
-                format!("{}/{}", git_base.trim_end_matches('/'), name_str)
-            } else {
-                crate::modules::fs::to_canon(entry.path())
-            };
+            let git_path = crate::modules::fs::to_canon(entry.path());
             let git_child = entry.path().join(".git");
             if git_child.exists() {
                 out.push((git_path, max_depth));
             } else {
-                collect_git_dirs(
-                    &entry.path(),
-                    workspace,
-                    &git_path,
-                    max_depth - 1,
-                    out,
-                    scanned,
-                    truncated,
-                )?;
+                collect_git_dirs(&entry.path(), max_depth - 1, out, scanned, truncated)?;
             }
         }
     }

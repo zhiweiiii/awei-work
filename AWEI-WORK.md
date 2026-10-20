@@ -4,7 +4,7 @@ awei-work 会把本文件作为工作区 agent 记忆加载。它规定项目边
 
 ## 项目与方向
 
-awei-work 是面向 Claude Code / Codex 的轻量、终端优先开发工作区，基于 crynta/terax-ai，保留 Apache 2.0 许可和出处。仅支持 Windows，含本机及 WSL 工作区；不构建 macOS/Linux，不重新实现 AI agent 或传统 IDE。
+awei-work 是面向 Claude Code / Codex 的轻量、终端优先开发工作区，基于 crynta/terax-ai，保留 Apache 2.0 许可和出处。仅支持 Windows 本机工作区；不构建 macOS/Linux，不重新实现 AI agent 或传统 IDE。
 
 技术栈：Tauri 2 / Rust、React 19 / TypeScript、xterm.js、CodeMirror 6。主二进制 dev/release 均为 awei-work。为继承已安装版本的配置，bundle id 保持 app.crynta.terax，旧存储键、目录、IPC 和 shell 环境标识不作为品牌更名；不删除旧数据。包管理器只用 pnpm，绝不 npm/npx/yarn。
 
@@ -15,7 +15,7 @@ awei-work 是面向 Claude Code / Codex 的轻量、终端优先开发工作区�
 - 新逻辑放所属模块的纯函数/少依赖内核；App.tsx 与 IPC 命令保持协调层，不复制事实来源。
 - 默认不写注释，必要时用 1–2 行解释为什么。代码与注释用英文，文档用中文。
 - 任何地方不用 emoji 或 em-dash。
-- 跨模块导入统一 @/...，路径兼容 Windows 分隔符、UNC 和 WSL。
+- 跨模块导入统一 @/...，路径兼容 Windows 分隔符及 UNC。
 - src/components/ui/ 和生成 AI Elements 原语不手改，升级通过对应生成流程。
 - 保留用户未提交改动；不用破坏性 Git 重置，不无差别终止用户进程。
 - 仓库不保留测试、测试配置或专用依赖；临时验证放仓库外，区分模拟与真实设备。
@@ -24,7 +24,7 @@ awei-work 是面向 Claude Code / Codex 的轻量、终端优先开发工作区�
 
 前端运行 pnpm lint 和 pnpm check-types；Rust 运行 cargo fmt --all -- --check 与 cargo clippy --all-targets --locked -- -D warnings。相关构建、浏览器/逻辑验证按改动补充；依赖或入口改动检查产物体积、结构引用和安全公告。
 
-静态检查与隔离验证不代替真实 CLI、Windows IME、WSL、iOS 或安装升级验收，不声明软件没有任何 bug。
+静态检查与隔离验证不代替真实 CLI、Windows IME、iOS 或安装升级验收，不声明软件没有任何 bug。
 
 ## 关键架构规则
 
@@ -36,9 +36,9 @@ PTY Session 固定所属空间环境，ID 不复用；ConPTY 创建和最终关�
 
 渲染器普通预算与 WebGL 上限为 5；忙碌、agent、alternate 或自动恢复网格绝不淘汰/序列化。隐藏忙碌 leaf 停靠但继续解析，必要时额外保留 DOM 网格。DormantRing 只为无槽位 leaf 保存有界输出。
 
-useTabs 是标签事实来源，文件窗口同时按 spaceId/ownerTabId 隔离。分组展开不切换项目，菜单内拖动排序及同环境跨组迁移同步所属窗口，禁止改变 PTY 执行环境。顶部按首次打开顺序显示当前选中及运行 agent 的项目，关闭只停止终端并收纳，分组关闭才删除项目；收纳优先于选中常驻且不自动恢复，重开使用新面板身份。首字图标无状态点；底部窗口按宽度驱逐最旧干净项，保护活动/最新/dirty，关闭前重查即时状态。
+useTabs 是标签事实来源，文件窗口同时按 spaceId/ownerTabId 隔离。分组展开不切换项目，菜单内指针拖动排序及跨组迁移同步所属窗口；仅支持本机环境，旧非本机记录保留但不加载，禁止静默转成本机项目。顶部按首次打开顺序显示当前选中及运行 agent 的项目，关闭只停止终端并收纳，分组关闭才删除项目；收纳优先于选中常驻且不自动恢复，重开使用新面板身份。首字图标无状态点；底部窗口按宽度驱逐最旧干净项，保护活动/最新/dirty，关闭前重查即时状态。
 
-最近 5 个非私密项目可自动恢复已确认 UUID 的 Claude/Codex 会话；不猜最新记录、不重放消息，用户开始输入、目录改变、已有任务、记录缺失或超时不提交。旧记录及 WSL 限制见 agents.md。
+最近 5 个非私密项目可自动恢复已确认 UUID 的 Claude/Codex 会话；不猜最新记录、不重放消息，用户开始输入、目录改变、已有任务、记录缺失或超时不提交。旧会话记录限制见 agents.md。
 
 文件保存串行、核对 mtime 与文档身份，失败保留草稿；跨进程不保证原子事务。媒体通过所属环境解析 asset 路径，不把正文作为文本读取，隐藏音视频暂停。Changes 显示目录树，合并公共父目录、压缩无分叉目录链，仓库分别隔离。文件事件绑定执行环境，溢出 rescan，监听按句柄释放。
 

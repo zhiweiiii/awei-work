@@ -8,7 +8,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { errorToast } from "@/lib/errorToast";
@@ -206,9 +206,7 @@ export function useMultiRepoSourceControl(
   contextPath: string | null,
   scanRoot: string | null,
 ): MultiRepoSourceControl {
-  const workspaceKey = useWorkspaceEnvStore((state) =>
-    workspaceScopeKey(state.env),
-  );
+  const workspaceKey = workspaceScopeKey(LOCAL_WORKSPACE);
   const contextKey = `${workspaceKey}\0${scanRoot ?? ""}`;
   const contextRef = useRef({ key: contextKey });
   if (contextRef.current.key !== contextKey)

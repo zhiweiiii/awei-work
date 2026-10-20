@@ -22,7 +22,7 @@ import {
 } from "@/modules/git-history/lib/filters";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace/env";
 import {
@@ -370,14 +370,14 @@ function BranchFilter({
   onSelect: (branch: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const environmentKey = workspaceScopeKey(workspace);
   const run = useCallback(async () => {
     if (currentWorkspaceScopeKey() !== environmentKey) return [];
     const result = await native.gitListBranches(repoRoot, workspace);
     if (currentWorkspaceScopeKey() !== environmentKey) return [];
     return result.branches.filter((branch) => branch.kind !== "remote");
-  }, [repoRoot, workspace, environmentKey]);
+  }, [repoRoot, environmentKey]);
   const {
     results: branches,
     loading,

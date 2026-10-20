@@ -22,7 +22,6 @@ import type { ThemePref } from "@/modules/settings/store";
 import {
   setAgentKeyPassthrough,
   setAutostart,
-  setDefaultWorkspaceEnv,
   setExplorerGitDecorations,
   setRestoreWindowState,
   setTerminalCursorBlink,
@@ -100,8 +99,6 @@ export function GeneralSection() {
   const terminalFontWeight = usePreferencesStore((s) => s.terminalFontWeight);
   const terminalShell = usePreferencesStore((s) => s.terminalShell);
   const [shells, setShells] = useState<ShellInfo[]>([]);
-  const [wslDistros, setWslDistros] = useState<{ name: string }[]>([]);
-  const defaultWorkspaceEnv = usePreferencesStore((s) => s.defaultWorkspaceEnv);
   const terminalLetterSpacing = usePreferencesStore(
     (s) => s.terminalLetterSpacing,
   );
@@ -144,13 +141,6 @@ export function GeneralSection() {
       })
       .catch((error) => {
         if (alive) errorToast("Could not list shells", error);
-      });
-    void invoke<{ name: string }[]>("wsl_list_distros")
-      .then((value) => {
-        if (alive) setWslDistros(value);
-      })
-      .catch((error) => {
-        if (alive) errorToast("Could not list WSL distributions", error);
       });
     return () => {
       alive = false;
@@ -361,9 +351,7 @@ export function GeneralSection() {
           description={
             shells.find((s) => s.path === terminalShell)?.integrated === false
               ? "该 Shell 不支持命令块和目录跟踪。"
-              : wslDistros.length > 0
-                ? "集成终端使用的 Shell。WSL 工作区使用该发行版的登录 Shell。已打开的标签页保持原有 Shell。"
-                : "新建终端标签页使用的 Shell。已打开的标签页保持原有 Shell。"
+              : "新建终端标签页使用的 Shell。已打开的标签页保持原有 Shell。"
           }
         >
           <Select
@@ -391,50 +379,6 @@ export function GeneralSection() {
             </SelectContent>
           </Select>
         </SettingRow>
-        {(wslDistros.length > 0 || defaultWorkspaceEnv !== "local") && (
-          <SettingRow
-            title="工作区环境"
-            description="新建工作区的运行环境，终端和 AI 智能体都适用: Windows 或某个 WSL 发行版。已有工作区保持原设置，可在状态栏随时切换。"
-          >
-            <Select
-              value={defaultWorkspaceEnv}
-              onValueChange={(v) => savePreference(setDefaultWorkspaceEnv(v))}
-            >
-              <SelectTrigger
-                value={defaultWorkspaceEnv}
-                aria-label="默认工作区环境"
-                className="h-8 w-40 text-[12px]"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local" className="text-[12px]">
-                  Windows
-                </SelectItem>
-                {wslDistros.map((d) => (
-                  <SelectItem
-                    key={d.name}
-                    value={`wsl:${d.name}`}
-                    className="text-[12px]"
-                  >
-                    WSL: {d.name}
-                  </SelectItem>
-                ))}
-                {defaultWorkspaceEnv.startsWith("wsl:") &&
-                  !wslDistros.some(
-                    (d) => `wsl:${d.name}` === defaultWorkspaceEnv,
-                  ) && (
-                    <SelectItem
-                      value={defaultWorkspaceEnv}
-                      className="text-[12px]"
-                    >
-                      {defaultWorkspaceEnv.slice("wsl:".length)} (不可用)
-                    </SelectItem>
-                  )}
-              </SelectContent>
-            </Select>
-          </SettingRow>
-        )}
         <SettingRow
           title="字符间距"
           description="字符之间额外的水平间距 (px)。使用负值可收紧 Nerd Font。"
@@ -523,7 +467,10 @@ export function GeneralSection() {
       <div className="flex flex-col gap-2">
         <Label>启动</Label>
         <div className="flex flex-col gap-2">
-          <SettingRow title="开机自启" description="登录系统时自动打开 awei-work。">
+          <SettingRow
+            title="开机自启"
+            description="登录系统时自动打开 awei-work。"
+          >
             <Switch
               checked={autostart}
               aria-label="开机自启"

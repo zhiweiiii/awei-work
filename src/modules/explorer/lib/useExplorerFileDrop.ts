@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { parentDir } from "@/modules/explorer/lib/watch";
@@ -39,7 +39,7 @@ function dirAt(
 // via Tauri's native drag-drop. One webview-level listener; ignores drops that
 // land outside the explorer (the terminal handles its own).
 export function useExplorerFileDrop({ rootPath, isDir, onCopied }: Options) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const scopeKey = workspaceScopeKey(workspace);
   const [targetDir, setTargetDir] = useState<string | null>(null);
   const optsRef = useRef({ rootPath, isDir, onCopied, workspace, scopeKey });

@@ -1,6 +1,5 @@
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
-import { currentWorkspaceEnv, type WorkspaceEnv } from "@/modules/workspace";
 
 export async function copyToClipboard(text: string): Promise<void> {
   try {
@@ -19,15 +18,7 @@ export function relativePath(rootPath: string, path: string): string {
   return path;
 }
 
-function systemPath(
-  path: string,
-  env: WorkspaceEnv = currentWorkspaceEnv(),
-): string {
-  if (env.kind === "wsl" && path.startsWith("/") && !path.startsWith("//")) {
-    if (!env.distro || /[\\/\x00-\x1f]/.test(env.distro))
-      throw new Error("Invalid WSL distribution");
-    return `\\\\wsl.localhost\\${env.distro}${path.replace(/\//g, "\\")}`;
-  }
+function systemPath(path: string): string {
   return path.replace(/\//g, "\\");
 }
 

@@ -4,7 +4,7 @@ import { useContentSearch } from "@/modules/command-palette/hooks/useContentSear
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
@@ -68,7 +68,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
   function ExplorerSearch({ rootPath, onOpenFile, onActiveChange }, ref) {
     const [q, setQ] = useState("");
     const [activeIndex, setActiveIndex] = useState(0);
-    const workspace = useWorkspaceEnvStore((state) => state.env);
+    const workspace = LOCAL_WORKSPACE;
     const workspaceKey = workspaceScopeKey(workspace);
     const inputRef = useRef<HTMLInputElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -98,7 +98,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
           throw new Error("Workspace changed");
         return result.hits;
       },
-      [rootPath, workspace, workspaceKey],
+      [rootPath, workspaceKey],
     );
     const files = useAsyncQuery({
       enabled: active,

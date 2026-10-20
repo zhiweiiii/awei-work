@@ -22,7 +22,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useState } from "react";
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
 import { useRepositoryOperation } from "@/modules/source-control/useRepositoryOperation";
-import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
+import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 import { toast } from "sonner";
 
 type Props = {
@@ -44,14 +44,14 @@ export function RemoteManagerDialog({
   onRemove,
   onSetUrl,
 }: Props) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const operation = useRepositoryOperation(open && !!repoRoot, repoRoot ?? "");
   const load = useCallback(
     () =>
       repoRoot
         ? native.gitRemoteList(repoRoot, workspace)
         : Promise.resolve([]),
-    [repoRoot, workspace],
+    [repoRoot],
   );
   const {
     results: remotes,

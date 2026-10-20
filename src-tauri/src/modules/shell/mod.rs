@@ -7,8 +7,6 @@ use std::time::Duration;
 use serde::Serialize;
 use shared_child::SharedChild;
 
-#[cfg(windows)]
-use crate::modules::workspace::validate_wsl_distro_name;
 use crate::modules::workspace::{authorize_spawn_cwd, WorkspaceEnv, WorkspaceRegistry};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -69,7 +67,7 @@ fn run_blocking(
     dur: Duration,
 ) -> Result<CommandOutput, String> {
     let mut cmd = build_oneshot_command(&command, &workspace, cwd.as_deref())?;
-    if let (WorkspaceEnv::Local, Some(dir)) = (&workspace, cwd) {
+    if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
     cmd.stdin(Stdio::null())
@@ -144,20 +142,9 @@ fn run_blocking(
 
 pub(crate) fn build_oneshot_command(
     command: &str,
-    #[cfg_attr(not(windows), allow(unused_variables))] workspace: &WorkspaceEnv,
-    #[cfg_attr(not(windows), allow(unused_variables))] cwd: Option<&str>,
+    _workspace: &WorkspaceEnv,
+    _cwd: Option<&str>,
 ) -> Result<Command, String> {
-    #[cfg(windows)]
-    if let WorkspaceEnv::Wsl { distro } = workspace {
-        validate_wsl_distro_name(distro)?;
-        let mut cmd = Command::new("wsl.exe");
-        cmd.arg("-d").arg(distro);
-        if let Some(cwd) = cwd.filter(|s| !s.is_empty()) {
-            cmd.arg("--cd").arg(cwd);
-        }
-        cmd.arg("--exec").arg("sh").arg("-lc").arg(command);
-        return Ok(cmd);
-    }
     {
         let shell = crate::modules::pty::shell_init::windows_shell_path();
         let mut cmd = Command::new(&shell);

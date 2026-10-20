@@ -12,7 +12,7 @@ import { GitCompareIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback } from "react";
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
-import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
+import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 /** Two-column commit comparison: commits only in each branch of the pair. */
 export function CompareBranchesDialog({
   open,
@@ -29,12 +29,12 @@ export function CompareBranchesDialog({
   left: string;
   right: string;
 }) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const run = useCallback(
     async () => [
       await native.gitCompareBranches(repoRoot, left, right, workspace),
     ],
-    [repoRoot, left, right, workspace],
+    [repoRoot, left, right],
   );
   const {
     results,

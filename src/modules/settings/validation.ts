@@ -81,7 +81,6 @@ export function normalizePreference(
     case "backgroundKind":
       return value === "none" || value === "image" ? value : fallback;
     case "backgroundImageId":
-    case "lastWslDistro":
       return value === null || typeof value === "string" ? value : fallback;
     case "backgroundOpacity":
       return number(0, 1);

@@ -5,12 +5,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useAppEvent } from "@/modules/events";
 import { setThemeId as persistThemeId } from "@/modules/settings/store";
 import type { Tab } from "@/modules/tabs";
-import {
-  currentWorkspaceEnv,
-  LOCAL_WORKSPACE,
-  useWorkspaceEnvStore,
-  workspaceScopeKey,
-} from "@/modules/workspace";
+import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 import { useSpaces } from "@/modules/spaces/lib/useSpaces";
 import { listCustomThemes, saveCustomTheme } from "./customThemes";
 import {
@@ -83,23 +78,12 @@ export function useThemeFileEditing({ tabsRef, openFileTab }: Params) {
     const releaseSpaces = useSpaces.subscribe((state, previous) => {
       if (state.activeId !== previous.activeId) request++;
     });
-    const releaseWorkspace = useWorkspaceEnvStore.subscribe(
-      (state, previous) => {
-        if (workspaceScopeKey(state.env) !== workspaceScopeKey(previous.env))
-          request++;
-      },
-    );
     void onThemeEdit((req) => {
       const id = ++request;
       const spaceId = useSpaces.getState().activeId;
       const current = () =>
-        alive &&
-        id === request &&
-        useSpaces.getState().activeId === spaceId &&
-        currentWorkspaceEnv().kind === "local";
+        alive && id === request && useSpaces.getState().activeId === spaceId;
       void (async () => {
-        if (currentWorkspaceEnv().kind !== "local")
-          throw new Error("Switch to a local workspace to edit theme files");
         if (!req || (req.action !== "create" && req.action !== "edit"))
           throw new Error("Invalid theme edit request");
         const theme =
@@ -143,7 +127,6 @@ export function useThemeFileEditing({ tabsRef, openFileTab }: Params) {
     return () => {
       alive = false;
       releaseSpaces();
-      releaseWorkspace();
       unsub?.();
     };
   }, [openFileTab, tabsRef]);

@@ -2,7 +2,7 @@ import { type GitRepoInfo, type GitStatusSnapshot, native } from "@/lib/native";
 import { invalidateRepoDiffs } from "@/modules/editor/lib/diffCache";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -183,7 +183,7 @@ export function useSourceControl(
   repoRoot?: string | null,
 ): SourceControlSummary {
   const _enabled = enabled ?? true;
-  const workspaceEnv = useWorkspaceEnvStore((s) => s.env);
+  const workspaceEnv = LOCAL_WORKSPACE;
   const workspaceKey = workspaceScopeKey(workspaceEnv);
   const [state, setState] = useState<SourceControlSummaryState>({
     contextPath: null,
@@ -212,7 +212,6 @@ export function useSourceControl(
   const autoFetchByRepoRef = useRef(new Map<string, number>());
   const enabledRef = useRef(_enabled);
   const lastRefreshAtRef = useRef(0);
-  const resetWorkspaceKeyRef = useRef(workspaceKey);
   const repoRootRef = useRef(repoRoot ?? null);
   const contextKey = sourceControlContextKey(
     workspaceKey,
@@ -227,24 +226,6 @@ export function useSourceControl(
   enabledRef.current = _enabled;
 
   repoRootRef.current = repoRoot ?? null;
-
-  useEffect(() => {
-    if (resetWorkspaceKeyRef.current === workspaceKey) return;
-    resetWorkspaceKeyRef.current = workspaceKey;
-    requestIdRef.current++;
-    inflightRef.current = null;
-    autoFetchByRepoRef.current.clear();
-    setState({
-      contextPath: null,
-      repo: null,
-      status: null,
-      hasRepo: false,
-      isLoading: false,
-      localError: null,
-      busyAction: null,
-      lastRemoteError: null,
-    });
-  }, [workspaceKey]);
 
   const applyStatus = useCallback(
     (updater: (status: GitStatusSnapshot) => GitStatusSnapshot) => {
@@ -469,7 +450,10 @@ export function useSourceControl(
   );
 
   const refresh = useCallback(
-    async (options?: { remote?: SourceControlRefreshMode; force?: boolean }) => {
+    async (options?: {
+      remote?: SourceControlRefreshMode;
+      force?: boolean;
+    }) => {
       const remoteMode = options?.remote ?? "never";
       const inflight = inflightRef.current;
       if (!options?.force && inflight?.contextKey === contextKey) {

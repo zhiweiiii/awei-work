@@ -52,7 +52,7 @@ import { errorToast } from "@/lib/errorToast";
 import { toast } from "sonner";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace/env";
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
@@ -99,7 +99,7 @@ type Props = {
 };
 
 export function CommitContextMenu(props: Props) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   return (
     <ScopedCommitContextMenu
       key={JSON.stringify([
@@ -524,14 +524,14 @@ function CommitDiffDialog({
   subject: string;
   onClose: () => void;
 }) {
-  const workspace = useWorkspaceEnvStore((value) => value.env);
+  const workspace = LOCAL_WORKSPACE;
   const environmentKey = workspaceScopeKey(workspace);
   const run = useCallback(async () => {
     if (currentWorkspaceScopeKey() !== environmentKey) return [];
     const diff = await native.gitDiffCommitVsWorktree(repoRoot, sha, workspace);
     if (currentWorkspaceScopeKey() !== environmentKey) return [];
     return [diff];
-  }, [repoRoot, sha, workspace, environmentKey]);
+  }, [repoRoot, sha, environmentKey]);
   const query = useAsyncQuery<GitDiffResult>({
     enabled: true,
     term: sha,

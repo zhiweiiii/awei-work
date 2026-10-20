@@ -1,6 +1,6 @@
 # 开发、安全与发布
 
-开发约定以根目录 [AWEI-WORK.md](../AWEI-WORK.md) 为准，贡献流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。仅支持 Windows，本机或 WSL 工作区。
+开发约定以根目录 [AWEI-WORK.md](../AWEI-WORK.md) 为准，贡献流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。仅支持 Windows 本机工作区。
 
 ## 运行与检查
 

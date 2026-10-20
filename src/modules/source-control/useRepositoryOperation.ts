@@ -1,14 +1,14 @@
 import { errorToast } from "@/lib/errorToast";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
   type WorkspaceEnv,
 } from "@/modules/workspace";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useRepositoryOperation(open: boolean, target: string) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const key = JSON.stringify([open, target, workspaceScopeKey(workspace)]);
   const scopeRef = useRef({ key });
   if (scopeRef.current.key !== key) scopeRef.current = { key };
@@ -30,7 +30,7 @@ export function useRepositoryOperation(open: boolean, target: string) {
       mountedRef.current &&
       scopeRef.current === scope &&
       currentWorkspaceScopeKey() === workspaceScopeKey(workspace),
-    [open, scope, workspace],
+    [open, scope],
   );
   const run = useCallback(
     async <T>(
@@ -59,7 +59,7 @@ export function useRepositoryOperation(open: boolean, target: string) {
       }
       return false;
     },
-    [current, workspace],
+    [current],
   );
   return { busy, run, scopeKey: key, isCurrent: current };
 }

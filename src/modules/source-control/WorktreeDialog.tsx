@@ -27,7 +27,7 @@ import { toast } from "sonner";
 import { defaultWorktreePath, gitWorktreeAdd } from "./worktreeOps";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 
@@ -50,7 +50,7 @@ export function WorktreeDialog({
   branches: GitBranchEntry[];
   onCreated: () => void;
 }) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const scope = workspaceScopeKey(workspace);
   const identity = JSON.stringify([open, repoRoot, scope]);
   const identityRef = useRef(identity);

@@ -29,6 +29,8 @@ const STATE_PREFIX = "state:";
 const stateKey = (id: string) => `${STATE_PREFIX}${id}`;
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 500 });
+type StoredSpace = Omit<SpaceMeta, "env"> & { env: { kind: string } };
+let retiredSpaces: StoredSpace[] = [];
 let writeQueue: Promise<void> = Promise.resolve();
 let dirty = false;
 
@@ -56,28 +58,28 @@ export type LoadedSpaces = {
 };
 
 export async function loadAll(): Promise<LoadedSpaces> {
-  const entries = await store.entries();
-  let spaces: SpaceMeta[] = [];
-  let activeId: string | null = null;
+  const entries = new Map(await store.entries());
+  const saved = entries.has(KEY_SPACES) ? entries.get(KEY_SPACES) : [];
+  if (
+    !Array.isArray(saved) ||
+    saved.length > 1000 ||
+    !saved.every(isStoredSpace) ||
+    new Set(saved.map((space) => space.id)).size !== saved.length
+  )
+    throw new Error(
+      "Invalid saved workspace list. Original data has been retained.",
+    );
+  retiredSpaces = saved.filter((space) => space.env.kind !== "local");
+  const spaces = saved.filter(
+    (space): space is SpaceMeta => space.env.kind === "local",
+  );
+  const activeId = entries.get(KEY_ACTIVE) ?? null;
+  if (activeId !== null && typeof activeId !== "string")
+    throw new Error("Invalid saved active workspace.");
   const states = new Map<string, SpaceState>();
-  for (const [k, v] of entries) {
-    if (k === KEY_SPACES) {
-      if (
-        !Array.isArray(v) ||
-        v.length > 1000 ||
-        !v.every(isSpaceMeta) ||
-        new Set(v.map((space) => space.id)).size !== v.length
-      ) {
-        throw new Error(
-          "Invalid saved workspace list. Original data has been retained.",
-        );
-      }
-      spaces = v;
-    } else if (k === KEY_ACTIVE) {
-      if (v !== null && typeof v !== "string")
-        throw new Error("Invalid saved active workspace.");
-      activeId = v;
-    } else if (k.startsWith(STATE_PREFIX)) {
+  for (const space of spaces) {
+    const v = entries.get(stateKey(space.id));
+    if (v !== undefined) {
       if (!v || typeof v !== "object")
         throw new Error("Invalid saved workspace state.");
       const state = v as SpaceState;
@@ -89,25 +91,23 @@ export async function loadAll(): Promise<LoadedSpaces> {
         throw new Error(
           "Invalid saved workspace tabs. Original data has been retained.",
         );
-      states.set(k.slice(STATE_PREFIX.length), state);
+      states.set(space.id, state);
     }
   }
   return { spaces, activeId, states };
 }
 
-function isSpaceMeta(value: unknown): value is SpaceMeta {
+function isStoredSpace(value: unknown): value is StoredSpace {
   if (!value || typeof value !== "object") return false;
-  const space = value as SpaceMeta;
+  const space = value as StoredSpace;
   return (
     typeof space.id === "string" &&
     space.id.length > 0 &&
     typeof space.name === "string" &&
     (space.root === null || typeof space.root === "string") &&
     !!space.env &&
-    (space.env.kind === "local" ||
-      (space.env.kind === "wsl" &&
-        typeof space.env.distro === "string" &&
-        space.env.distro.length > 0)) &&
+    typeof space.env.kind === "string" &&
+    space.env.kind.length > 0 &&
     Number.isFinite(space.createdAt) &&
     Number.isFinite(space.updatedAt) &&
     (space.color === undefined ||
@@ -118,7 +118,13 @@ function isSpaceMeta(value: unknown): value is SpaceMeta {
 }
 
 export async function saveSpacesList(spaces: SpaceMeta[]): Promise<void> {
-  await write(() => store.set(KEY_SPACES, spaces));
+  if (spaces.length + retiredSpaces.length > 1000)
+    throw new Error("Workspace list exceeds the supported limit.");
+  if (
+    spaces.some((space) => retiredSpaces.some((saved) => saved.id === space.id))
+  )
+    throw new Error("Cannot overwrite a retired workspace.");
+  await write(() => store.set(KEY_SPACES, [...spaces, ...retiredSpaces]));
 }
 
 export async function saveActiveId(id: string | null): Promise<void> {
@@ -126,10 +132,14 @@ export async function saveActiveId(id: string | null): Promise<void> {
 }
 
 export async function saveState(id: string, state: SpaceState): Promise<void> {
+  if (retiredSpaces.some((space) => space.id === id))
+    throw new Error("Cannot overwrite a retired workspace.");
   await write(() => store.set(stateKey(id), state));
 }
 
 export async function deleteSpaceData(id: string): Promise<void> {
+  if (retiredSpaces.some((space) => space.id === id))
+    throw new Error("Cannot delete a retired workspace.");
   await write(async () => {
     await store.delete(stateKey(id));
   });

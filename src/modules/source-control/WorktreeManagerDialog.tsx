@@ -27,7 +27,7 @@ import { WorktreeDialog } from "./WorktreeDialog";
 import { gitWorktreeRemove } from "./worktreeOps";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 
@@ -81,7 +81,7 @@ export function WorktreeManagerDialog({
   /** Opens a terminal at the worktree path; wired by the App layer. */
   onOpenPath?: (path: string) => void;
 }) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const scope = workspaceScopeKey(workspace);
   const identity = JSON.stringify([open, repoRoot, scope]);
   const identityRef = useRef(identity);
@@ -140,7 +140,7 @@ export function WorktreeManagerDialog({
       setError(typeof e === "string" ? e : String(e));
       setBranches([]);
     }
-  }, [repoRoot, workspace, scope, open, identity, epoch]);
+  }, [repoRoot, scope, open, identity, epoch]);
 
   useEffect(() => {
     if (!open) return;

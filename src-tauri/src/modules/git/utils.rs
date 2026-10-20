@@ -22,10 +22,6 @@ pub fn display_path(path: &Path) -> String {
     crate::modules::fs::to_canon(path)
 }
 
-fn normalize_git_path(path: &str) -> String {
-    path.replace('\\', "/")
-}
-
 pub fn canonical_dir(
     registry: &WorkspaceRegistry,
     path: &str,
@@ -38,11 +34,7 @@ pub fn canonical_dir(
     let local_path = registry
         .canonicalize_cached(&candidate)
         .map_err(GitError::Io)?;
-    let git_path = if workspace.is_wsl() {
-        normalize_git_path(path)
-    } else {
-        display_path(&local_path)
-    };
+    let git_path = display_path(&local_path);
     Ok(ResolvedGitDirectory {
         workspace: workspace.clone(),
         git_path,

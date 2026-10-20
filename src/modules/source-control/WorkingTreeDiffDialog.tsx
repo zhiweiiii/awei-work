@@ -12,7 +12,7 @@ import { FileDiffIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback } from "react";
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
-import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
+import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 
 /** Working-tree diff of the current branch, read-only in a scrollable panel. */
 export function WorkingTreeDiffDialog({
@@ -28,12 +28,12 @@ export function WorkingTreeDiffDialog({
   repoName: string;
   refName: string;
 }) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const run = useCallback(
     async () => [
       await native.gitDiffWithRef(repoRoot, refName, null, workspace),
     ],
-    [repoRoot, refName, workspace],
+    [repoRoot, refName],
   );
   const {
     results,

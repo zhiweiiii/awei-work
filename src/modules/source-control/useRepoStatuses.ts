@@ -1,6 +1,6 @@
 import { type GitRepoHead, type GitStatusSnapshot, native } from "@/lib/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
+import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 
 export type RepoStatusEntry = {
   repoRoot: string;
@@ -29,7 +29,7 @@ export function useRepoStatuses(
   refreshRepo: (repoRoot: string) => Promise<void>;
   refreshAll: () => Promise<void>;
 } {
-  const env = useWorkspaceEnvStore((s) => s.env);
+  const env = LOCAL_WORKSPACE;
   const scope = workspaceScopeKey(env);
   const roots = useMemo(
     () => repos.map((r) => r.repoRoot).filter((r) => r !== activeRepoRoot),

@@ -8,7 +8,8 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type DragEvent, useCallback, useRef, useState } from "react";
+import { type PointerEvent, useCallback, useRef, useState } from "react";
+import type { ProjectDropTarget } from "./lib/useProjectDrag";
 
 type Props = {
   projects: TerminalTab[];
@@ -17,9 +18,9 @@ type Props = {
   onSelect: (tab: TerminalTab) => void;
   onRename: (id: number, name: string) => void;
   onClose: (id: number) => void;
-  onDragStart: (id: number, event: DragEvent) => void;
-  onDragEnd: () => void;
-  onDropProject: (id: number, after: boolean) => void;
+  onDragStart: (id: number, event: PointerEvent<HTMLElement>) => void;
+  draggingId: number | null;
+  dropTarget: ProjectDropTarget | null;
   isDragging: () => boolean;
 };
 
@@ -43,14 +44,15 @@ function ProjectRow({
   onRename,
   onClose,
   onDragStart,
-  onDragEnd,
-  onDropProject,
+  draggingId,
+  dropTarget,
   isDragging,
 }: Omit<Props, "projects"> & { project: TerminalTab }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState("");
   const editing = useRef(false);
-  const [dropAfter, setDropAfter] = useState<boolean | null>(null);
+  const dropAfter =
+    dropTarget?.projectId === project.id ? dropTarget.after : null;
   const focusInput = useCallback((input: HTMLInputElement | null) => {
     input?.focus();
   }, []);
@@ -89,45 +91,17 @@ function ProjectRow({
     );
   return (
     <DropdownMenuItem
-      draggable
-      onDragStart={(event) => onDragStart(project.id, event)}
-      onDragEnd={() => {
-        setDropAfter(null);
-        onDragEnd();
-      }}
-      onDragOver={(event) => {
-        if (
-          !event.dataTransfer.types.includes("application/x-awei-work-project")
-        )
-          return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.dataTransfer.dropEffect = "move";
-        const bounds = event.currentTarget.getBoundingClientRect();
-        setDropAfter(event.clientY >= bounds.top + bounds.height / 2);
-      }}
-      onDragLeave={() => setDropAfter(null)}
-      onDrop={(event) => {
-        if (
-          !event.dataTransfer.types.includes("application/x-awei-work-project")
-        )
-          return;
-        event.preventDefault();
-        event.stopPropagation();
-        const bounds = event.currentTarget.getBoundingClientRect();
-        onDropProject(
-          project.id,
-          event.clientY >= bounds.top + bounds.height / 2,
-        );
-        setDropAfter(null);
-      }}
+      data-project-drop-space={project.spaceId}
+      data-project-drop-id={project.id}
+      onPointerDown={(event) => onDragStart(project.id, event)}
       onSelect={(event) => {
         if (isDragging()) event.preventDefault();
         else onSelect(project);
       }}
       title={project.cwd ?? name}
       className={cn(
-        "group/project flex gap-2 rounded-lg px-2 py-1.5 text-xs",
+        "group/project flex touch-none cursor-grab gap-2 rounded-lg px-2 py-1.5 text-xs",
+        draggingId === project.id && "cursor-grabbing opacity-50",
         activeId === project.id && "bg-accent",
         dropAfter === false && "shadow-[inset_0_2px_0_var(--primary)]",
         dropAfter === true && "shadow-[inset_0_-2px_0_var(--primary)]",

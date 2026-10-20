@@ -10,7 +10,7 @@ import {
 import { errorToast } from "@/lib/errorToast";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { Add01Icon, Clock01Icon } from "@hugeicons/core-free-icons";
@@ -66,7 +66,7 @@ type Props = {
  * nothing.
  */
 export function SessionHistoryMenu({ cwd, onRun }: Props) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const scopeKey = workspaceScopeKey(workspace);
   const [open, setOpen] = useState(false);
   const [requestId, setRequestId] = useState(0);
@@ -80,7 +80,7 @@ export function SessionHistoryMenu({ cwd, onRun }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    if (!cwd || workspace.kind === "wsl") {
+    if (!cwd) {
       setResult({ cwd, scopeKey, requestId, sessions: [] });
       return;
     }
@@ -105,7 +105,7 @@ export function SessionHistoryMenu({ cwd, onRun }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [cwd, open, requestId, scopeKey, workspace]);
+  }, [cwd, open, requestId, scopeKey]);
 
   const sessions =
     result?.cwd === cwd &&
@@ -180,9 +180,7 @@ export function SessionHistoryMenu({ cwd, onRun }: Props) {
           </button>
         ) : sessions !== null && sessions.length === 0 && !loading ? (
           <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-            {workspace.kind === "wsl"
-              ? "WSL 历史尚未接入，请在对应命令行使用 resume。"
-              : "这个目录还没有历史会话"}
+            这个目录还没有历史会话
           </div>
         ) : null}
 

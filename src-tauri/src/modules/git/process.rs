@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::Path;
@@ -15,8 +14,6 @@ use crate::modules::git::types::{
     GitOutput, TextSource, DEFAULT_TIMEOUT_SECS, MAX_FILE_BYTES, MAX_OUTPUT_BYTES,
     MAX_TIMEOUT_SECS, MIN_GIT_VERSION,
 };
-#[cfg(windows)]
-use crate::modules::workspace::validate_wsl_distro_name;
 use crate::modules::workspace::WorkspaceEnv;
 
 #[derive(Clone)]
@@ -33,50 +30,29 @@ struct AvailabilityCache {
     checked_at: Instant,
 }
 
-static GIT_AVAILABILITY: OnceLock<Mutex<HashMap<String, AvailabilityCache>>> = OnceLock::new();
+static GIT_AVAILABILITY: OnceLock<Mutex<Option<AvailabilityCache>>> = OnceLock::new();
 
-fn availability_cell() -> &'static Mutex<HashMap<String, AvailabilityCache>> {
-    GIT_AVAILABILITY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn prune_expired_availability_entries(cache: &mut HashMap<String, AvailabilityCache>) {
-    cache.retain(|_, entry| entry.checked_at.elapsed() < AVAILABILITY_TTL);
-}
-
-fn workspace_cache_key(workspace: &WorkspaceEnv) -> String {
-    match workspace {
-        WorkspaceEnv::Local => "local".into(),
-        WorkspaceEnv::Wsl { distro } => format!("wsl:{distro}"),
-    }
+fn availability_cell() -> &'static Mutex<Option<AvailabilityCache>> {
+    GIT_AVAILABILITY.get_or_init(|| Mutex::new(None))
 }
 
 pub fn ensure_git_available(workspace: &WorkspaceEnv) -> Result<()> {
-    let cache_key = workspace_cache_key(workspace);
-    let cached = {
-        let mut guard = availability_cell()
-            .lock()
-            .expect("git availability poisoned");
-        prune_expired_availability_entries(&mut guard);
-        guard
-            .get(&cache_key)
-            .filter(|entry| entry.checked_at.elapsed() < AVAILABILITY_TTL)
-            .map(|entry| entry.value.clone())
-    };
+    let cached = availability_cell()
+        .lock()
+        .expect("git availability poisoned")
+        .as_ref()
+        .filter(|entry| entry.checked_at.elapsed() < AVAILABILITY_TTL)
+        .map(|entry| entry.value.clone());
     let value = match cached {
-        Some(v) => v,
+        Some(value) => value,
         None => {
             let fresh = check_git_availability(workspace);
-            let mut guard = availability_cell()
+            *availability_cell()
                 .lock()
-                .expect("git availability poisoned");
-            prune_expired_availability_entries(&mut guard);
-            guard.insert(
-                cache_key,
-                AvailabilityCache {
-                    value: fresh.clone(),
-                    checked_at: Instant::now(),
-                },
-            );
+                .expect("git availability poisoned") = Some(AvailabilityCache {
+                value: fresh.clone(),
+                checked_at: Instant::now(),
+            });
             fresh
         }
     };
@@ -376,20 +352,6 @@ fn build_git_command(
     cwd: Option<&str>,
     args: &[OsString],
 ) -> Result<Command> {
-    #[cfg(windows)]
-    if let WorkspaceEnv::Wsl { distro } = _workspace {
-        validate_wsl_distro_name(distro)
-            .map_err(|_| GitError::command("unsafe WSL distro name", distro.clone()))?;
-        let mut cmd = Command::new("wsl.exe");
-        cmd.arg("-d").arg(distro);
-        if let Some(cwd) = cwd.filter(|s| !s.is_empty()) {
-            cmd.arg("--cd").arg(cwd);
-        }
-        cmd.arg("--exec").arg("git");
-        cmd.args(args);
-        return Ok(cmd);
-    }
-
     let mut cmd = Command::new("git");
     cmd.args(args);
     if let Some(dir) = cwd.filter(|s| !s.is_empty()) {

@@ -22,6 +22,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import type { SpaceMeta } from "./lib/store";
+import { useProjectDrag } from "./lib/useProjectDrag";
 
 type Props = {
   spaces: SpaceMeta[];
@@ -61,17 +62,17 @@ export function GroupSwitcher({
   );
   const editing = useRef(false);
   const selectedProject = useRef(false);
-  const dragging = useRef<number | null>(null);
-  const [dropSpaceId, setDropSpaceId] = useState<string | null>(null);
-  const endDrag = () => {
-    dragging.current = null;
-    setDropSpaceId(null);
-  };
-  const dropProject = (spaceId: string, beforeId: number | null) => {
-    const id = dragging.current;
-    endDrag();
-    if (id !== null) onMoveProject(id, spaceId, beforeId);
-  };
+  const contentRef = useRef<HTMLDivElement>(null);
+  const drag = useProjectDrag({
+    open,
+    containerRef: contentRef,
+    projects,
+    onMove: onMoveProject,
+    onExpand: (spaceId) =>
+      setExpandedIds((previous) =>
+        previous.has(spaceId) ? previous : new Set([...previous, spaceId]),
+      ),
+  });
   const focusInput = useCallback((input: HTMLInputElement | null) => {
     input?.focus();
   }, []);
@@ -127,7 +128,6 @@ export function GroupSwitcher({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) endDrag();
         if (next) selectedProject.current = false;
       }}
     >
@@ -154,6 +154,11 @@ export function GroupSwitcher({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
+        ref={contentRef}
+        onDragStartCapture={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (event.target instanceof HTMLInputElement) event.preventDefault();
+        }}
         align="start"
         side="bottom"
         sideOffset={4}
@@ -196,28 +201,12 @@ export function GroupSwitcher({
           return (
             <Fragment key={space.id}>
               <DropdownMenuItem
-                onDragOver={(event) => {
-                  if (dragging.current === null) return;
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                  setDropSpaceId(space.id);
-                  setExpandedIds((previous) =>
-                    previous.has(space.id)
-                      ? previous
-                      : new Set([...previous, space.id]),
-                  );
-                }}
-                onDragLeave={() => setDropSpaceId(null)}
-                onDrop={(event) => {
-                  if (dragging.current === null) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  dropProject(space.id, null);
-                }}
+                data-project-drop-space={space.id}
                 aria-expanded={expandedIds.has(space.id)}
                 aria-controls={`group-projects-${space.id}`}
                 onSelect={(e) => {
                   e.preventDefault();
+                  if (drag.isDragging()) return;
                   const expanding = !expandedIds.has(space.id);
                   setExpandedIds((previous) => {
                     const next = new Set(previous);
@@ -229,7 +218,9 @@ export function GroupSwitcher({
                 className={cn(
                   "group/item flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs cursor-default",
                   isActive && "bg-accent text-accent-foreground",
-                  dropSpaceId === space.id && "ring-1 ring-primary",
+                  drag.target?.projectId === null &&
+                    drag.target.spaceId === space.id &&
+                    "ring-1 ring-primary",
                 )}
               >
                 <HugeiconsIcon
@@ -293,16 +284,7 @@ export function GroupSwitcher({
               </DropdownMenuItem>
               {expandedIds.has(space.id) && (
                 <DropdownMenuGroup
-                  onDragOver={(event) => {
-                    if (dragging.current === null) return;
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(event) => {
-                    if (dragging.current === null) return;
-                    event.preventDefault();
-                    dropProject(space.id, null);
-                  }}
+                  data-project-drop-space={space.id}
                   id={`group-projects-${space.id}`}
                   aria-label={`${space.name} 项目`}
                   className="ml-3 border-l border-border/60 pl-1"
@@ -312,34 +294,17 @@ export function GroupSwitcher({
                     activeId={activeProjectId}
                     runningIds={runningProjectIds}
                     onSelect={(project) => {
-                      if (dragging.current !== null) return;
+                      if (drag.isDragging()) return;
                       selectedProject.current = true;
                       onSelectProject(project);
                       setOpen(false);
                     }}
                     onRename={onRenameProject}
                     onClose={onCloseProject}
-                    onDragStart={(id, event) => {
-                      dragging.current = id;
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData(
-                        "application/x-awei-work-project",
-                        String(id),
-                      );
-                    }}
-                    onDragEnd={endDrag}
-                    isDragging={() => dragging.current !== null}
-                    onDropProject={(projectId, after) => {
-                      const list = projectsBySpace.get(space.id) ?? [];
-                      const index = list.findIndex(
-                        (project) => project.id === projectId,
-                      );
-                      if (index < 0) return;
-                      dropProject(
-                        space.id,
-                        after ? (list[index + 1]?.id ?? null) : projectId,
-                      );
-                    }}
+                    onDragStart={drag.begin}
+                    draggingId={drag.draggingId}
+                    dropTarget={drag.target}
+                    isDragging={drag.isDragging}
                   />
                 </DropdownMenuGroup>
               )}

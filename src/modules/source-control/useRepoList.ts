@@ -1,6 +1,6 @@
 import { type GitRepoHead, native } from "@/lib/native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
+import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 
 // Per-project repo selections kept in memory; older projects fall off.
 const SELECTION_MEMORY_LIMIT = 16;
@@ -22,7 +22,7 @@ type UseRepoListResult = {
  * If exactly one repo is found it is auto-selected.
  */
 export function useRepoList(basePath: string | null): UseRepoListResult {
-  const env = useWorkspaceEnvStore((s) => s.env);
+  const env = LOCAL_WORKSPACE;
   const key = `${workspaceScopeKey(env)}:${basePath ?? ""}`;
   const contextRef = useRef(key);
   contextRef.current = key;

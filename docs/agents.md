@@ -8,11 +8,11 @@ awei-work 使用用户已安装并登录的 CLI，模型权限和费用由对应
 
 Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sessions/<年>/<月>/<日>/` 读取。Claude 目录转义可能碰撞，Codex 日期也不是项目归属；必须逐文件核对真实 cwd，不能只看路径。标题过滤环境及指令前言，无法找到真实标题就显示无标题，不猜。
 
-每文件头部读取上限 192 KB；扫描结果缓存 2 秒/最多 32 目录，头部缓存最多 512 文件。扫描有项数、文件数、深度和时间预算，超限返回错误而非用部分结果判断唯一性。菜单只在打开时加载，回复绑定目录/环境/打开代次。目前历史只读取 Windows 用户目录，WSL 不显示本机历史。
+每文件头部读取上限 192 KB；扫描结果缓存 2 秒/最多 32 目录，头部缓存最多 512 文件。扫描有项数、文件数、深度和时间预算，超限返回错误而非用部分结果判断唯一性。菜单只在打开时加载，回复绑定目录/环境/打开代次。历史读取 Windows 用户目录。
 
 自动恢复最近 5 个非私密项目，持久化 `lastUsedAt` 和 `lastAgentSession`。身份由对应 PTY 的 agent 运行代次、固定记录文件、UUID/cwd 核对确认，不以最新文件代替当前会话。运行后约 1 秒检查，随后每 15 秒及退出保存时检查最近项目；没有 agent 时不周期读历史。
 
-启动只恢复每个项目上次活动面板的一个 agent。验证确切记录后等待 PTY 和提示符就绪，预算 20 秒；隐藏面板临时绑定现有渲染器，不抢焦点。项目/面板关闭、目录改变、已有任务或用户已开始输入草稿均取消。记录缺失、WSL 历史不可读或超时不会新建对话、不会重放消息。旧版本未保存 UUID，升级后先运行一次会话并正常保存。
+启动只恢复每个项目上次活动面板的一个 agent。验证确切记录后等待 PTY 和提示符就绪，预算 20 秒；隐藏面板临时绑定现有渲染器，不抢焦点。项目/面板关闭、目录改变、已有任务或用户已开始输入草稿均取消。记录缺失或超时不会新建对话、不会重放消息。旧版本未保存 UUID，升级后先运行一次会话并正常保存。
 
 ## 用量
 
@@ -45,7 +45,7 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 供应商按 leaf 的 `/p/<providerId>` 固定，不用全局选择改道其他终端；删除供应商返回失败，不默默换到别家。pin 不持久化、不自动继承。切换先检查前台任务，保留 cwd 重启，失败恢复 pin；探针是真实小请求，可能有费用。
 
-环境在 spawn 时注入 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`，清除冲突的 `ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`，不敲入终端历史。模型按 opus/sonnet/haiku 路由，剥除 `[1m]`。WSL 不注入 Windows 回环网关。
+环境在 spawn 时注入 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`，清除冲突的 `ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`，不敲入终端历史。模型按 opus/sonnet/haiku 路由，剥除 `[1m]`。
 
 转换核心 `convert.rs`、`stream.rs`、`sse.rs` 不碰 IO。SSE 处理跨 chunk UTF-8，最终只发一次 message_delta；include_usage、工具参数稳定序列化保留，上游错误/中断不补成功结束。reqwest 在 runtime 内构建/send，并主动安装 ring provider，不能依赖更新插件先初始化。
 

@@ -7,7 +7,7 @@
 
 把 AI 编码终端、项目文件、代码编辑、Git 和网页预览放进一个窗口。直接使用你熟悉的 Claude Code / Codex CLI，不替换它们的工作方式；离开电脑后，也能通过手机继续查看和操作同一会话。
 
-桌面应用仅支持 Windows，可使用本机或 WSL 工作区。Claude Code / Codex 需自行安装并登录，模型权限和费用由对应服务提供。
+桌面应用仅支持 Windows 本机工作区。Claude Code / Codex 需自行安装并登录，模型权限和费用由对应服务提供。
 
 ## 核心功能
 
@@ -58,7 +58,7 @@ cd src-tauri
 cargo clippy --all-targets --locked -- -D warnings
 ~~~
 
-技术栈：Tauri 2 / Rust / React 19 / TypeScript / xterm.js / CodeMirror 6。架构与维护说明见 [文档索引](docs/README.md)，已知限制见 [issues](docs/issues.md)。目前 LSP 不支持 WSL 工作区；手机实时选项识别可能受 CLI 界面变化影响。
+技术栈：Tauri 2 / Rust / React 19 / TypeScript / xterm.js / CodeMirror 6。架构与维护说明见 [文档索引](docs/README.md)，已知限制见 [issues](docs/issues.md)。手机实时选项识别可能受 CLI 界面变化影响。
 
 ## 项目来源与许可
 

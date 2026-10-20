@@ -99,7 +99,7 @@ import {
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import {
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   type WorkspaceEnv,
   workspaceScopeKey,
 } from "@/modules/workspace";
@@ -167,7 +167,7 @@ function HeaderTabs({
 }
 
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
-import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
+import { useWorkspaceHome } from "./hooks/useWorkspaceHome";
 
 export default function App() {
   const {
@@ -206,7 +206,6 @@ export default function App() {
     splitActivePane,
     closeActivePane,
     closePaneByLeaf,
-    resetWorkspace,
   } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
 
   // Mirror `tabs` into a ref so callbacks scheduled with `setTimeout`
@@ -238,23 +237,8 @@ export default function App() {
   // split/unsplit re-mount components but the leaf is still live.
   const liveLeavesRef = useRef<Set<number>>(new Set());
 
-  const clearWorkspaceState = useCallback(() => {
-    for (const id of liveLeavesRef.current) disposeSession(id);
-    terminalRefs.current.clear();
-    editorRefs.current.clear();
-    previewRefs.current.clear();
-  }, []);
-
-  const workspaceEnv = useWorkspaceEnvStore((s) => s.env);
-  const setWorkspaceEnv = useWorkspaceEnvStore((s) => s.setEnv);
-  const { home, launchCwd, launchCwdResolved, adoptWorkspaceEnv } =
-    useWorkspaceSwitcher({
-      tabsRef,
-      workspaceEnv,
-      setWorkspaceEnv,
-      resetWorkspace,
-      clearWorkspaceState,
-    });
+  const workspaceEnv = LOCAL_WORKSPACE;
+  const { home, launchCwd, launchCwdResolved } = useWorkspaceHome();
 
   const activeSpaceId = useSpaces((s) => s.activeId);
   const spacesHydrated = useSpaces((s) => s.hydrated);
@@ -272,7 +256,6 @@ export default function App() {
     replaceTabs,
     markBooted,
     setActiveSpaceForNewTabs,
-    adoptWorkspaceEnv,
   });
 
   const flushSpaces = useSpacePersistence({
@@ -303,10 +286,6 @@ export default function App() {
     const prev = prevSpaceRef.current;
     prevSpaceRef.current = activeSpaceId;
     if (prev === null || prev === activeSpaceId) return;
-    const meta = useSpaces
-      .getState()
-      .spaces.find((s) => s.id === activeSpaceId);
-    if (meta) void adoptWorkspaceEnv(meta.env);
     const inSpace = tabsRef.current.filter((t) => t.spaceId === activeSpaceId);
     if (inSpace.length === 0) {
       if (activeId !== 0) setActiveId(0);
@@ -329,7 +308,6 @@ export default function App() {
     spacesHydrated,
     setActiveSpaceForNewTabs,
     setActiveId,
-    adoptWorkspaceEnv,
   ]);
 
   const spaceTabs = useMemo(
@@ -867,9 +845,7 @@ export default function App() {
   const isRepositoryContextCurrent = useCallback(
     (spaceId: string, workspaceKey: string) => {
       const currentSpaceId = useSpaces.getState().activeId ?? DEFAULT_SPACE_ID;
-      const currentWorkspaceKey = workspaceScopeKey(
-        useWorkspaceEnvStore.getState().env,
-      );
+      const currentWorkspaceKey = workspaceScopeKey(LOCAL_WORKSPACE);
       return spaceId === currentSpaceId && workspaceKey === currentWorkspaceKey;
     },
     [],
@@ -1325,7 +1301,7 @@ export default function App() {
       newTab(activeCwd ?? undefined);
       setActive(meta.id);
     },
-    [activeCwd, home, workspaceEnv, newTab, setActiveSpaceForNewTabs],
+    [activeCwd, home, newTab, setActiveSpaceForNewTabs],
   );
 
   const handleRenameGroup = useCallback((id: string, name: string) => {
@@ -1379,12 +1355,6 @@ export default function App() {
       const source = state.spaces.find((space) => space.id === current.spaceId);
       const target = state.spaces.find((space) => space.id === spaceId);
       if (!source || !target) return;
-      if (workspaceScopeKey(source.env) !== workspaceScopeKey(target.env)) {
-        toast.error("不能在不同运行环境之间移动项目", {
-          description: "本机与 WSL、不同 WSL 发行版的终端不能直接迁移。",
-        });
-        return;
-      }
       const active = tabsRef.current.find((tab) => tab.id === activeId);
       moveProject(id, spaceId, beforeId);
       if (

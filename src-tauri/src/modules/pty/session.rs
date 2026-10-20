@@ -91,7 +91,6 @@ pub struct Session {
     /// PID of the shell process. 0 means unknown; callers must skip checks when 0.
     pub shell_pid: u32,
     pub shell_kind: shell_init::ShellQuoteKind,
-    local_history: bool,
     pub killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     master: Mutex<SerializedMaster>,
@@ -202,9 +201,6 @@ impl Session {
     }
 
     pub fn agent_resume(&self, cwd: &str) -> Option<AgentResume> {
-        if !self.local_history {
-            return None;
-        }
         let run = self.agent.lock().ok()?.as_ref()?.clone();
         if !matches!(run.name.as_str(), "claude" | "codex") {
             return None;
@@ -538,7 +534,6 @@ pub fn spawn(
     };
     let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
 
-    let local_history = !workspace.is_wsl();
     let (cmd, shell_kind) =
         shell_init::build_command(cwd.clone(), workspace, blocks, shell, gateway_provider)?;
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
@@ -571,7 +566,6 @@ pub fn spawn(
         _job: Some(job),
         shell_pid,
         shell_kind,
-        local_history,
         killer: Mutex::new(killer),
         writer: writer.clone(),
         master: Mutex::new(SerializedMaster(Some(pair.master))),

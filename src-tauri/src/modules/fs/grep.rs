@@ -298,21 +298,9 @@ pub async fn fs_grep_interactive(
 
 fn display_path(
     path: &std::path::Path,
-    root_path: &std::path::Path,
-    root_display: &str,
-    workspace: &WorkspaceEnv,
+    _root_path: &std::path::Path,
+    _root_display: &str,
+    _workspace: &WorkspaceEnv,
 ) -> String {
-    if workspace.is_wsl() {
-        if let Ok(rel) = path.strip_prefix(root_path) {
-            let rel = to_canon(rel);
-            return if rel.is_empty() {
-                root_display.to_string()
-            } else if root_display.ends_with('/') {
-                format!("{root_display}{rel}")
-            } else {
-                format!("{root_display}/{rel}")
-            };
-        }
-    }
     to_canon(path)
 }

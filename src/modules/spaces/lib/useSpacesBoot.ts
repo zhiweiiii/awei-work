@@ -2,13 +2,17 @@ import { native } from "@/lib/native";
 import { errorToast } from "@/lib/errorToast";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Tab } from "@/modules/tabs";
-import { DEFAULT_SPACE_ID } from "@/modules/tabs/lib/useTabs";
 import { isLeaf, type PaneNode } from "@/modules/terminal/lib/panes";
-import { parseWorkspaceScopeKey, type WorkspaceEnv } from "@/modules/workspace";
+import { LOCAL_WORKSPACE } from "@/modules/workspace";
 import { useEffect, useRef } from "react";
-import { activeSpaceEnv, freshTabCwd } from "./activeSpace";
 import { freshTerminalTab, hydrateTabs } from "./serialize";
-import { loadAll, type SpaceMeta, saveActiveId, saveSpacesList } from "./store";
+import {
+  loadAll,
+  type SpaceMeta,
+  newSpaceId,
+  saveActiveId,
+  saveSpacesList,
+} from "./store";
 import { useSpaces } from "./useSpaces";
 import { prepareProjectRestore } from "@/modules/spaces/lib/projectRestore";
 
@@ -20,7 +24,6 @@ type Params = {
   replaceTabs: (tabs: Tab[], activeId: number) => void;
   markBooted: () => void;
   setActiveSpaceForNewTabs: (id: string) => void;
-  adoptWorkspaceEnv: (env: WorkspaceEnv) => Promise<string | null>;
 };
 
 function uniqueCwds(tabs: Tab[]): string[] {
@@ -44,7 +47,6 @@ export function useSpacesBoot({
   replaceTabs,
   markBooted,
   setActiveSpaceForNewTabs,
-  adoptWorkspaceEnv,
 }: Params) {
   const done = useRef(false);
   const mounted = useRef(false);
@@ -71,17 +73,11 @@ export function useSpacesBoot({
         if (!mounted.current) return;
 
         if (spaces.length === 0) {
-          const env = parseWorkspaceScopeKey(
-            usePreferencesStore.getState().defaultWorkspaceEnv,
-          );
-          const restoredHome = await adoptWorkspaceEnv(env);
-          if (!mounted.current) return;
-          const root =
-            env.kind === "local"
-              ? (launchCwd ?? restoredHome ?? home)
-              : restoredHome;
+          const env = LOCAL_WORKSPACE;
+          const root = launchCwd ?? home;
+          const initialId = newSpaceId();
           const meta: SpaceMeta = {
-            id: DEFAULT_SPACE_ID,
+            id: initialId,
             name: "Default",
             root,
             env,
@@ -89,11 +85,11 @@ export function useSpacesBoot({
             updatedAt: Date.now(),
           };
           await saveSpacesList([meta]);
-          await saveActiveId(DEFAULT_SPACE_ID);
+          await saveActiveId(initialId);
           if (!mounted.current) return;
-          setActiveSpaceForNewTabs(DEFAULT_SPACE_ID);
-          useSpaces.getState().hydrate([meta], DEFAULT_SPACE_ID);
-          const tab = freshTerminalTab(DEFAULT_SPACE_ID, root, allocId);
+          setActiveSpaceForNewTabs(initialId);
+          useSpaces.getState().hydrate([meta], initialId);
+          const tab = freshTerminalTab(initialId, root, allocId);
           replaceTabs([tab], tab.id);
           return;
         }
@@ -111,17 +107,11 @@ export function useSpacesBoot({
             : spaces[0].id;
         setActiveSpaceForNewTabs(active);
 
-        // Apply the space's env+home before the fresh-tab fallback and spawns
-        // below; env is set synchronously so cwd resolution picks WSL vs local.
-        const env = activeSpaceEnv(spaces, active);
-        const restoredHome = await adoptWorkspaceEnv(env);
-        if (!mounted.current) return;
-
         if (
           !states.has(active) &&
           !restored.some((t) => t.spaceId === active)
         ) {
-          const cwd = freshTabCwd(env, restoredHome, launchCwd, home);
+          const cwd = home ?? launchCwd;
           restored.push(freshTerminalTab(active, cwd, allocId));
         }
 
@@ -157,6 +147,5 @@ export function useSpacesBoot({
     replaceTabs,
     markBooted,
     setActiveSpaceForNewTabs,
-    adoptWorkspaceEnv,
   ]);
 }

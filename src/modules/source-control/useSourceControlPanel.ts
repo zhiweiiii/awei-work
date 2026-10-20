@@ -14,7 +14,7 @@ import {
 } from "@/modules/editor/lib/diffCache";
 import {
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   type WorkspaceEnv,
   workspaceScopeKey,
 } from "@/modules/workspace";
@@ -388,7 +388,7 @@ export function useSourceControlPanel(
   repoStatuses: RepoStatusBundle = NOOP_REPO_STATUSES,
   pushPreview?: PushPreviewBridge,
 ): SourceControlPanelState {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const contextKey = JSON.stringify([
     workspaceScopeKey(workspace),
     summary.contextPath,
@@ -412,7 +412,7 @@ export function useSourceControlPanel(
       mountedRef.current &&
       contextRef.current === context &&
       currentWorkspaceScopeKey() === workspaceScopeKey(workspace),
-    [context, workspace],
+    [context],
   );
   const ensureCurrent = useCallback(() => {
     if (!isCurrent())
@@ -515,7 +515,7 @@ export function useSourceControlPanel(
         if (isCurrent()) setLocalActionBusy(null);
       }
     },
-    [summary.busyAction, isCurrent, workspace, ensureCurrent],
+    [summary.busyAction, isCurrent, ensureCurrent],
   );
 
   useEffect(() => {

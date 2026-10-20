@@ -34,7 +34,7 @@ import { BranchActionsMenu } from "./BranchActionsMenu";
 import { BranchConfirmDialog } from "./BranchConfirmDialog";
 import { useRepositoryOperation } from "@/modules/source-control/useRepositoryOperation";
 import {
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   workspaceScopeKey,
   type WorkspaceEnv,
 } from "@/modules/workspace";
@@ -103,7 +103,7 @@ function currentBranchOf(branches: GitBranchEntry[]): string | null {
  * Branches are only fetched when a repo's flyout opens.
  */
 export function RepoBranchSelector(props: Props) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const key = JSON.stringify([
     workspaceScopeKey(workspace),
     props.repos.map((repo) => repo.repoRoot).sort(),
@@ -125,7 +125,7 @@ function ScopedRepoBranchSelector({
   const [branches, setBranches] = useState<Record<string, GitBranchEntry[]>>(
     {},
   );
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const { busy, run, isCurrent } = useRepositoryOperation(
     true,
     JSON.stringify(repos.map((repo) => repo.repoRoot).sort()),
@@ -189,7 +189,7 @@ function ScopedRepoBranchSelector({
         }
       }
     },
-    [isCurrent, workspace],
+    [isCurrent],
   );
 
   const checkout = useCallback(

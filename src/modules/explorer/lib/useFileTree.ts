@@ -4,7 +4,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   currentWorkspaceEnv,
   currentWorkspaceScopeKey,
-  useWorkspaceEnvStore,
+  LOCAL_WORKSPACE,
   type WorkspaceEnv,
   workspaceScopeKey,
 } from "@/modules/workspace";
@@ -94,7 +94,7 @@ type Options = {
 };
 
 export function useFileTree(rootPath: string | null, options?: Options) {
-  const env = useWorkspaceEnvStore((s) => s.env);
+  const env = LOCAL_WORKSPACE;
   const scopeKey = workspaceScopeKey(env);
   const scopeRef = useRef({ root: rootPath, key: scopeKey, epoch: 0 });
   if (scopeRef.current.root !== rootPath || scopeRef.current.key !== scopeKey)
@@ -463,7 +463,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         );
       return true;
     },
-    [pendingCreate, fetchChildren, env, mutationScopeCurrent],
+    [pendingCreate, fetchChildren, mutationScopeCurrent],
   );
 
   const beginRename = useCallback((path: string) => {
@@ -507,7 +507,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         setRenaming((current) => (current === renaming ? null : current));
       return true;
     },
-    [renaming, fetchChildren, options, env, mutationScopeCurrent],
+    [renaming, fetchChildren, options, mutationScopeCurrent],
   );
 
   const deletePath = useCallback(
@@ -523,7 +523,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         toast.error(`Delete failed: ${String(e)}`);
       }
     },
-    [fetchChildren, options, env, mutationScopeCurrent],
+    [fetchChildren, options, mutationScopeCurrent],
   );
 
   const movePath = useCallback(
@@ -554,7 +554,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         toast.error(`Move failed: ${String(e)}`);
       }
     },
-    [fetchChildren, options, env, mutationScopeCurrent],
+    [fetchChildren, options, mutationScopeCurrent],
   );
 
   return {

@@ -49,7 +49,7 @@ import {
   COMPACT_ITEM,
 } from "@/modules/explorer/lib/menuItemClass";
 import { joinPath } from "@/modules/explorer/lib/useFileTree";
-import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
+import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 import {
   Alert02Icon,
   ArrowDown01Icon,
@@ -325,7 +325,7 @@ function BranchDropdown({
   actionBusy: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const [pendingRemote, setPendingRemote] = useState<{
     remote: string;
     local: string;
@@ -333,7 +333,7 @@ function BranchDropdown({
   const readBranches = useCallback(async () => {
     if (!repoRoot) return [];
     return (await native.gitListBranches(repoRoot, workspace)).branches;
-  }, [repoRoot, workspace]);
+  }, [repoRoot]);
   const query = useAsyncQuery({
     enabled: open && !!repoRoot,
     term: "",
@@ -597,7 +597,7 @@ function BranchDropdown({
 export const SourceControlPanel = memo(function SourceControlPanel(
   props: Props,
 ) {
-  const workspace = useWorkspaceEnvStore((state) => state.env);
+  const workspace = LOCAL_WORKSPACE;
   const scopeKey = JSON.stringify([
     workspaceScopeKey(workspace),
     props.sourceControl.contextPath,

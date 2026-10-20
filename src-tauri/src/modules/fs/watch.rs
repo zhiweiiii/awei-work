@@ -114,7 +114,6 @@ struct RegisteredPath {
 }
 
 struct WatchLease {
-    workspace: WorkspaceEnv,
     paths: Vec<RegisteredPath>,
 }
 
@@ -235,13 +234,7 @@ fn collect(set: &mut HashSet<String>, bytes: &mut usize, ev: notify::Result<Even
 }
 
 fn watch_key(path: &str) -> String {
-    let key = path.trim_end_matches('/');
-    let lower = key.to_ascii_lowercase();
-    if lower.starts_with("//wsl.localhost/") || lower.starts_with("//wsl$/") {
-        key.to_string()
-    } else {
-        lower
-    }
+    path.trim_end_matches('/').to_ascii_lowercase()
 }
 
 fn changed_payloads(
@@ -249,29 +242,15 @@ fn changed_payloads(
     rescan: bool,
     leases: &HashMap<u64, WatchLease>,
 ) -> Vec<ChangedPayload> {
-    let mut groups: HashMap<Option<String>, (WorkspaceEnv, HashSet<String>)> = HashMap::new();
-    let mut count = paths.len();
+    let mut changed = paths.clone();
     let mut bytes = paths.iter().map(String::len).sum::<usize>();
-    groups.insert(None, (WorkspaceEnv::Local, paths.clone()));
-    let mut bindings: HashMap<String, Vec<(Option<String>, String)>> = HashMap::new();
-    let mut seen = HashSet::new();
+    let mut bindings: HashMap<String, HashSet<String>> = HashMap::new();
     for lease in leases.values() {
-        let scope = match &lease.workspace {
-            WorkspaceEnv::Local => None,
-            WorkspaceEnv::Wsl { distro } => Some(distro.clone()),
-        };
-        groups
-            .entry(scope.clone())
-            .or_insert_with(|| (lease.workspace.clone(), HashSet::new()));
         for registered in &lease.paths {
-            let key = watch_key(&to_canon(&registered.canonical));
-            let display = registered.display.trim_end_matches('/').to_string();
-            if seen.insert((key.clone(), scope.clone(), display.clone())) {
-                bindings
-                    .entry(key)
-                    .or_default()
-                    .push((scope.clone(), display));
-            }
+            bindings
+                .entry(watch_key(&to_canon(&registered.canonical)))
+                .or_default()
+                .insert(registered.display.trim_end_matches('/').to_string());
         }
     }
     let mut overflow = rescan;
@@ -288,41 +267,29 @@ fn changed_payloads(
             let Some(aliases) = bindings.get(&key) else {
                 continue;
             };
-            for (scope, display) in aliases {
+            for display in aliases {
                 let mapped = match name {
                     Some(name) => format!("{display}/{name}"),
-                    None => {
-                        if display.is_empty() {
-                            "/".to_string()
-                        } else {
-                            display.clone()
-                        }
-                    }
-                };
-                let Some((_, changed)) = groups.get_mut(scope) else {
-                    continue;
+                    None if display.is_empty() => "/".to_string(),
+                    None => display.clone(),
                 };
                 if changed.contains(&mapped) {
                     continue;
                 }
-                if count >= MAX_CHANGED_PATHS || bytes + mapped.len() > MAX_PATH_BYTES {
+                if changed.len() >= MAX_CHANGED_PATHS || bytes + mapped.len() > MAX_PATH_BYTES {
                     overflow = true;
                     break 'events;
                 }
-                count += 1;
                 bytes += mapped.len();
                 changed.insert(mapped);
             }
         }
     }
-    groups
-        .into_values()
-        .map(|(workspace, paths)| ChangedPayload {
-            workspace,
-            paths: paths.into_iter().collect(),
-            rescan: overflow,
-        })
-        .collect()
+    vec![ChangedPayload {
+        workspace: WorkspaceEnv::Local,
+        paths: changed.into_iter().collect(),
+        rescan: overflow,
+    }]
 }
 
 fn add_paths(inner: &mut WatchInner, paths: Vec<RegisteredPath>) -> Vec<RegisteredPath> {
@@ -372,11 +339,7 @@ fn prepare_add(
             {
                 return None;
             }
-            let display = if workspace.is_wsl() && raw.starts_with('/') && !raw.starts_with("//") {
-                raw
-            } else {
-                raw.replace('\\', "/")
-            };
+            let display = raw.replace('\\', "/");
             Some(RegisteredPath { canonical, display })
         })
         .collect()
@@ -443,13 +406,7 @@ pub async fn fs_watch_add(
             return Ok(None);
         }
         inner.next_lease = lease;
-        inner.leases.insert(
-            lease,
-            WatchLease {
-                workspace,
-                paths: added,
-            },
-        );
+        inner.leases.insert(lease, WatchLease { paths: added });
         Ok(Some(lease.to_string()))
     })
     .await
