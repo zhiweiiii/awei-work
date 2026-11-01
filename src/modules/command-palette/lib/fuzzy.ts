@@ -1,5 +1,5 @@
-// Subsequence scorer for the small in-memory sources only. File and content
-// search are ranked server-side (ripgrep + nucleo), never here.
+// Subsequence scoring for in-memory commands, themes and history.
+// File and content searches use literal matching in Rust.
 
 const BONUS_BOUNDARY = 10;
 const BONUS_CAMEL = 7;

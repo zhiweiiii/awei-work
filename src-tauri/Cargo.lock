@@ -264,7 +264,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "awei-work"
-version = "1.0.10"
+version = "1.0.26"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -280,7 +280,6 @@ dependencies = [
  "libc",
  "log",
  "notify",
- "nucleo-matcher",
  "portable-pty",
  "reqwest",
  "rusqlite",
@@ -2702,16 +2701,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42b8cfee0e339a0337359f3c88165702ac6e600dc01c0cc9579a92d62b08477a"
 dependencies = [
  "bitflags 2.11.1",
-]
-
-[[package]]
-name = "nucleo-matcher"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf33f538733d1a5a3494b836ba913207f14d9d4a1d3cd67030c5061bdd2cac85"
-dependencies = [
- "memchr",
- "unicode-segmentation",
 ]
 
 [[package]]

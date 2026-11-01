@@ -42,9 +42,13 @@ pub async fn pty_agent_session(
 pub struct WebTab {
     /// Frontend leaf id; the key the frontend uses to activate a tab.
     pub leaf_id: u32,
+    #[serde(default)]
+    pub project_id: Option<u32>,
     pub cwd: Option<String>,
     pub title: Option<String>,
     pub active: bool,
+    #[serde(default)]
+    pub viewed: bool,
     /// Set once a pty session exists for this leaf.
     pub pty_id: Option<u32>,
     /// The group (space) this terminal belongs to.
@@ -512,7 +516,20 @@ pub fn web_sync_tabs(
     tabs: Vec<WebTab>,
 ) {
     let live: std::collections::HashSet<u32> = tabs.iter().map(|t| t.leaf_id).collect();
+    let context_changed = {
+        let previous = state.web_tabs.lock().unwrap();
+        let viewed = |tabs: &[WebTab]| {
+            tabs.iter()
+                .filter(|tab| tab.active || tab.viewed)
+                .map(|tab| (tab.leaf_id, tab.active, tab.viewed))
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        viewed(&previous) != viewed(&tabs)
+    };
     state.web_sync_tabs(tabs);
+    if context_changed {
+        crate::modules::pet::context_changed(&app, None);
+    }
     let before = schedule.revision();
     for leaf in schedule
         .list()

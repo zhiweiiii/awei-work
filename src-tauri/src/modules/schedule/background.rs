@@ -24,7 +24,7 @@ pub(super) fn run(app: &tauri::AppHandle, job: &Job) -> Result<String, String> {
     let executable = match job.target {
         Target::Codex => which::which("codex.exe").or_else(|_| which::which("codex.cmd")),
         Target::Claude => which::which("claude.exe").or_else(|_| which::which("claude.cmd")),
-        Target::Terminal => return Err("invalid background target".into()),
+        Target::Terminal | Target::Pet => return Err("invalid background target".into()),
     }
     .map_err(|e| format!("找不到程序，请先安装并登录对应 CLI：{e}"))?;
     let directory = app
@@ -41,7 +41,7 @@ pub(super) fn run(app: &tauri::AppHandle, job: &Job) -> Result<String, String> {
         Target::Claude => {
             command.args(["-p", "--output-format", "text"]);
         }
-        Target::Terminal => unreachable!(),
+        Target::Terminal | Target::Pet => unreachable!(),
     }
     command
         .current_dir(directory)

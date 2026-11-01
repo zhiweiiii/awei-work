@@ -35,6 +35,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Tabs as ExplorerTabs } from "radix-ui";
 import {
   forwardRef,
   memo,
@@ -301,8 +302,19 @@ export const FileExplorer = memo(
       gitDecorations,
     );
     const [selectedPath, setSelectedPath] = useState<string | null>(null);
-    const [isSearchActive, setIsSearchActive] = useState(false);
+    const [viewState, setViewState] = useState<{
+      root: string | null;
+      value: "files" | "search";
+    }>({ root: rootPath, value: "files" });
+    const view = viewState.root === rootPath ? viewState.value : "files";
+    const setView = useCallback(
+      (value: "files" | "search") => setViewState({ root: rootPath, value }),
+      [rootPath],
+    );
     const searchRef = useRef<ExplorerSearchHandle>(null);
+    const revealDirectoryRef = useRef<{ root: string; path: string } | null>(
+      null,
+    );
     const containerRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const openPathSet = useMemo(
@@ -421,6 +433,7 @@ export const FileExplorer = memo(
 
     const locateActiveFile = useCallback(() => {
       if (!rootPath || !activeFilePath) return;
+      setView("files");
       const target = activeFilePath.replace(/\\/g, "/");
       const root = rootPath.replace(/\\/g, "/");
       if (target === root || !target.startsWith(`${root}/`)) return;
@@ -438,7 +451,20 @@ export const FileExplorer = memo(
       lastSyncedActivePathRef.current = null;
       setSelectedPath(target);
       requestAnimationFrame(() => scrollEntryIntoView(target));
-    }, [rootPath, activeFilePath, tree, scrollEntryIntoView]);
+    }, [rootPath, activeFilePath, tree, scrollEntryIntoView, setView]);
+
+    useEffect(() => {
+      const pending = revealDirectoryRef.current;
+      if (!pending) return;
+      if (pending.root !== rootPath) {
+        revealDirectoryRef.current = null;
+        return;
+      }
+      if (view !== "files" || !entryIndexByPath.has(pending.path)) return;
+      revealDirectoryRef.current = null;
+      setSelectedPath(pending.path);
+      requestAnimationFrame(() => scrollEntryIntoView(pending.path));
+    }, [rootPath, view, entryIndexByPath, scrollEntryIntoView]);
 
     const lastSyncedActivePathRef = useRef<string | null>(null);
     useEffect(() => {
@@ -458,6 +484,7 @@ export const FileExplorer = memo(
       ref,
       () => ({
         focus: () => {
+          setView("files");
           containerRef.current?.focus();
           if (!selectedPath && entryPaths.length > 0) {
             const first = entryPaths[0];
@@ -472,14 +499,16 @@ export const FileExplorer = memo(
           return active instanceof Node && c.contains(active);
         },
         focusSearch: () => {
+          setView("search");
           searchRef.current?.focus();
         },
       }),
-      [entryPaths, scrollEntryIntoView, selectedPath],
+      [entryPaths, scrollEntryIntoView, selectedPath, setView],
     );
 
     useGlobalShortcuts({
       "explorer.search": () => {
+        setView("search");
         if (searchRef.current?.isFocused()) {
           return;
         }
@@ -516,7 +545,12 @@ export const FileExplorer = memo(
         e.altKey
       )
         return;
-      if (tree.renaming || tree.pendingCreate || searchRef.current?.isFocused())
+      if (
+        view !== "files" ||
+        tree.renaming ||
+        tree.pendingCreate ||
+        searchRef.current?.isFocused()
+      )
         return;
       const target = e.target as HTMLElement;
       if (target !== containerRef.current && !target.closest("[data-fs-path]"))
@@ -646,129 +680,157 @@ export const FileExplorer = memo(
     };
 
     return (
-      // biome-ignore lint/a11y/useSemanticElements: This tree navigation group contains controls, not form fields.
-      <div
+      <ExplorerTabs.Root
+        value={view}
+        onValueChange={(value) =>
+          setView(value === "search" ? "search" : "files")
+        }
         ref={containerRef}
         role="group"
         aria-label="File explorer"
         className="flex h-full flex-col outline-none"
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: This group is the imperative focus target for tree navigation.
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
-        <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2">
-          <span
-            className="flex flex-1 items-center truncate text-xs font-medium text-foreground/80"
-            title={rootPath}
+        <div className="flex min-h-8 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-2">
+          <ExplorerTabs.List
+            className="flex h-8 min-w-0 basis-36 flex-1 items-center gap-1"
+            aria-label="文件栏页面"
           >
-            <img
-              src={folderIconUrl(basename(rootPath), false)}
-              alt=""
-              height={15}
-              width={15}
-              className="mx-1.5"
-            />
-            {basename(rootPath)}
-          </span>
+            <ExplorerTabs.Trigger
+              value="files"
+              className="flex min-w-0 flex-1 items-center rounded-md px-1.5 py-0.5 text-[10.5px] text-muted-foreground outline-none hover:bg-foreground/[0.04] hover:text-foreground data-[state=active]:bg-foreground/[0.08] data-[state=active]:font-medium data-[state=active]:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+              title={rootPath}
+            >
+              <img
+                src={folderIconUrl(basename(rootPath), false)}
+                alt=""
+                height={15}
+                width={15}
+                className="mr-1.5 shrink-0"
+              />
+              <span className="truncate">{basename(rootPath)}</span>
+            </ExplorerTabs.Trigger>
+            <ExplorerTabs.Trigger
+              value="search"
+              className="shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] text-muted-foreground outline-none hover:bg-foreground/[0.04] hover:text-foreground data-[state=active]:bg-foreground/[0.08] data-[state=active]:font-medium data-[state=active]:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              搜索结果
+            </ExplorerTabs.Trigger>
+          </ExplorerTabs.List>
+          <div className="ml-auto flex h-8 shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground hover:text-foreground"
+              onClick={locateActiveFile}
+              disabled={!activeFilePath}
+              title="Locate active file"
+              aria-label="Locate active file"
+            >
+              <HugeiconsIcon icon={Target01Icon} size={13} strokeWidth={2} />
+            </Button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
-            onClick={locateActiveFile}
-            disabled={!activeFilePath}
-            title="Locate active file"
-            aria-label="Locate active file"
-          >
-            <HugeiconsIcon icon={Target01Icon} size={13} strokeWidth={2} />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
-            onClick={() => tree.beginCreate(rootPath, "file")}
-            title="New file"
-          >
-            <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
-            onClick={() => tree.beginCreate(rootPath, "dir")}
-            title="New folder"
-          >
-            <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "size-6 text-muted-foreground hover:text-foreground",
-                  // Say so when the tree is not showing everything, or a
-                  // missing file looks like a missing file.
-                  (hideGitIgnored || showHidden) && "text-foreground",
-                )}
-                title="过滤"
-                aria-label="过滤"
-              >
-                <HugeiconsIcon icon={FilterIcon} size={13} strokeWidth={2} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-44">
-              {/* Both items read as "hide this": checked hides, unchecked
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setView("files");
+                tree.beginCreate(rootPath, "file");
+              }}
+              title="New file"
+            >
+              <HugeiconsIcon icon={FileAddIcon} size={13} strokeWidth={2} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setView("files");
+                tree.beginCreate(rootPath, "dir");
+              }}
+              title="New folder"
+            >
+              <HugeiconsIcon icon={FolderAddIcon} size={13} strokeWidth={2} />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "size-6 text-muted-foreground hover:text-foreground",
+                    // Say so when the tree is not showing everything, or a
+                    // missing file looks like a missing file.
+                    (hideGitIgnored || showHidden) && "text-foreground",
+                  )}
+                  title="过滤"
+                  aria-label="过滤"
+                  disabled={view === "search"}
+                >
+                  <HugeiconsIcon icon={FilterIcon} size={13} strokeWidth={2} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-44">
+                {/* Both items read as "hide this": checked hides, unchecked
                   shows. `showHidden` is stored the other way round, so it is
                   inverted here rather than in the store, where other readers
                   already depend on its sense. */}
-              <DropdownMenuCheckboxItem
-                checked={!showHidden}
-                onCheckedChange={(v) => applyFilter(setShowHidden, v !== true)}
-              >
-                隐藏 隐藏文件
-              </DropdownMenuCheckboxItem>
-              {/* Without git decorations Rust never fills `gitignored`, so
+                <DropdownMenuCheckboxItem
+                  checked={!showHidden}
+                  onCheckedChange={(v) =>
+                    applyFilter(setShowHidden, v !== true)
+                  }
+                >
+                  隐藏 隐藏文件
+                </DropdownMenuCheckboxItem>
+                {/* Without git decorations Rust never fills `gitignored`, so
                   every entry reads as not-ignored and this filter would
                   silently do nothing. Say why instead of pretending. */}
-              <DropdownMenuCheckboxItem
-                checked={compactFolders}
-                onCheckedChange={(v) =>
-                  applyFilter(setCompactFolders, v === true)
-                }
-              >
-                合并单层目录
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={hideGitIgnored}
-                disabled={!gitDecorations}
-                onCheckedChange={(v) =>
-                  applyFilter(setHideGitIgnored, v === true)
-                }
-              >
-                隐藏 git 忽略文件
-              </DropdownMenuCheckboxItem>
-              {!gitDecorations ? (
-                <p className="px-3 pb-1.5 text-[10.5px] leading-snug text-muted-foreground">
-                  需先在设置里开启 git 状态标记
-                </p>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6 text-muted-foreground hover:text-foreground"
-            onClick={() => tree.refresh(rootPath)}
-            title="Refresh"
-          >
-            <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
-          </Button>
+                <DropdownMenuCheckboxItem
+                  checked={compactFolders}
+                  onCheckedChange={(v) =>
+                    applyFilter(setCompactFolders, v === true)
+                  }
+                >
+                  合并单层目录
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={hideGitIgnored}
+                  disabled={!gitDecorations}
+                  onCheckedChange={(v) =>
+                    applyFilter(setHideGitIgnored, v === true)
+                  }
+                >
+                  隐藏 git 忽略文件
+                </DropdownMenuCheckboxItem>
+                {!gitDecorations ? (
+                  <p className="px-3 pb-1.5 text-[10.5px] leading-snug text-muted-foreground">
+                    需先在设置里开启 git 状态标记
+                  </p>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                if (view === "search") searchRef.current?.refresh();
+                else tree.refresh(rootPath);
+              }}
+              title={view === "search" ? "刷新搜索结果" : "Refresh"}
+            >
+              <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
+            </Button>
+          </div>
         </div>
 
         <ExplorerSearch
           ref={searchRef}
+          key={rootPath}
           rootPath={rootPath}
           onOpenFile={(path, line) => {
             if (line !== undefined && onOpenSearchHit) {
@@ -777,10 +839,27 @@ export const FileExplorer = memo(
               onOpenFile(path);
             }
           }}
-          onActiveChange={setIsSearchActive}
+          onOpenDirectory={(path) => {
+            const relative = relativePath(rootPath, path);
+            if (relative === path || relative === ".") return;
+            revealDirectoryRef.current = { root: rootPath, path };
+            setView("files");
+            let parent = rootPath;
+            for (const segment of relative.split(/[\\/]/)) {
+              parent = tree.joinPath(parent, segment);
+              tree.expand(parent);
+            }
+          }}
+          resultsVisible={view === "search"}
+          onShowResults={() => setView("search")}
         />
 
-        {!isSearchActive ? (
+        <ExplorerTabs.Content
+          value="files"
+          forceMount
+          tabIndex={-1}
+          className="flex min-h-0 flex-1 flex-col outline-none data-[state=inactive]:hidden"
+        >
           <ContextMenu
             onOpenChange={(open) => {
               if (!open) setDeleteConfirm(false);
@@ -1075,7 +1154,7 @@ export const FileExplorer = memo(
               )}
             </ContextMenuContent>
           </ContextMenu>
-        ) : null}
+        </ExplorerTabs.Content>
 
         {dnd.dragLabel ? (
           <div
@@ -1085,7 +1164,7 @@ export const FileExplorer = memo(
             {dnd.dragLabel}
           </div>
         ) : null}
-      </div>
+      </ExplorerTabs.Root>
     );
   }),
 );

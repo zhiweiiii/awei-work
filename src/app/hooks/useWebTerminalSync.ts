@@ -10,12 +10,15 @@ import {
 } from "@/modules/terminal";
 import { useSpaces } from "@/modules/spaces";
 import type { Tab } from "@/modules/tabs";
+import { readLeafScreen } from "@/modules/terminal/lib/rendererPool";
 
 type WebTab = {
   leaf_id: number;
+  project_id: number;
   cwd: string | null;
   title: string | null;
   active: boolean;
+  viewed: boolean;
   pty_id: number | null;
   space_id: string | null;
 };
@@ -56,9 +59,11 @@ export function useWebTerminalSync({
         const ptyId = ptyIdForLeaf(leafId);
         tabs.push({
           leaf_id: leafId,
+          project_id: tab.id,
           cwd: findLeafCwd(tab.paneTree, leafId) ?? tab.cwd ?? null,
           title: tab.customTitle ?? tab.title ?? null,
           active: tab.id === activeId && leafId === tab.activeLeafId,
+          viewed: tab.id === activeId,
           pty_id: ptyId,
           space_id: tab.spaceId,
         });
@@ -166,6 +171,52 @@ export function useWebTerminalSync({
     return () => {
       disposed = true;
       unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let release: (() => void) | undefined;
+    void listen<{
+      requestId: number;
+      targets: { leafId: number; ptyId: number }[];
+    }>("awei-work:pet-choice-status", ({ payload }) => {
+      void (async () => {
+        const responses: {
+          ptyId: number;
+          awaitingChoice: boolean;
+        }[] = [];
+        try {
+          const { hasAgentChoices } = await import("@/web/conversation");
+          if (disposed) return;
+          for (const target of payload.targets) {
+            let awaitingChoice = false;
+            if (ptyIdForLeaf(target.leafId) === target.ptyId) {
+              const screen = readLeafScreen(target.leafId);
+              if (screen) awaitingChoice = hasAgentChoices(screen);
+            }
+            responses.push({
+              ptyId: target.ptyId,
+              awaitingChoice,
+            });
+          }
+        } finally {
+          if (!disposed)
+            await invoke("pet_choice_status_reply", {
+              requestId: payload.requestId,
+              responses,
+            });
+        }
+      })().catch((error) => console.warn("pet prompt reply failed:", error));
+    })
+      .then((off) => {
+        if (disposed) off();
+        else release = off;
+      })
+      .catch((error) => console.warn("pet prompt listener failed:", error));
+    return () => {
+      disposed = true;
+      release?.();
     };
   }, []);
 }

@@ -23,7 +23,7 @@ type ScheduledJob = {
   fire_at: number;
   created_at: number;
   daily_time: string | null;
-  target: "terminal" | "codex" | "claude";
+  target: "terminal" | "codex" | "claude" | "pet";
   running: boolean;
   finished: boolean;
   paused: boolean;
@@ -171,8 +171,8 @@ export function ScheduleButton({ leafId }: Props) {
           variant="ghost"
           size="icon"
           className="size-6 text-muted-foreground hover:text-foreground"
-          title="定时发送命令"
-          aria-label="定时发送命令"
+          title="定时任务"
+          aria-label="定时任务"
         >
           <HugeiconsIcon icon={Clock01Icon} size={13} strokeWidth={2} />
         </Button>
@@ -191,8 +191,9 @@ export function ScheduleButton({ leafId }: Props) {
             <option value="terminal">终端</option>
             <option value="codex">Codex（后台）</option>
             <option value="claude">Claude Code（后台）</option>
+            <option value="pet">宠物提示</option>
           </select>
-          <Label htmlFor="schedule-mode">发送方式</Label>
+          <Label htmlFor="schedule-mode">执行时间</Label>
           <select
             id="schedule-mode"
             className="h-8 rounded-md border border-border bg-background text-xs"
@@ -205,7 +206,11 @@ export function ScheduleButton({ leafId }: Props) {
           </select>
           <div className="flex flex-col gap-1">
             <Label className="text-[11px]">
-              {target === "terminal" ? "命令" : "消息"}
+              {target === "pet"
+                ? "提示内容"
+                : target === "terminal"
+                  ? "命令"
+                  : "消息"}
             </Label>
             <Input
               className="h-8 font-mono text-[12px]"
@@ -214,7 +219,13 @@ export function ScheduleButton({ leafId }: Props) {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
               }}
-              placeholder={target === "terminal" ? "pnpm build" : "你好"}
+              placeholder={
+                target === "pet"
+                  ? "该休息一下了"
+                  : target === "terminal"
+                    ? "pnpm build"
+                    : "你好"
+              }
               spellCheck={false}
             />
           </div>
@@ -272,12 +283,16 @@ export function ScheduleButton({ leafId }: Props) {
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {target === "terminal"
-              ? `目标：${leafId === null ? "未选择终端" : `当前终端 #${leafId}`}。重启或关闭原终端后，任务保留并暂停，需重新绑定。`
-              : "到点独立启动后台程序，不占用终端、不需工作目录。使用本机 CLI 的登录和配置，每次新建对话。"}
+            {target === "pet"
+              ? "到点自动显示宠物气泡，直接说出填写的内容，不启动 agent。"
+              : target === "terminal"
+                ? `目标：${leafId === null ? "未选择终端" : `当前终端 #${leafId}`}。重启或关闭原终端后，任务保留并暂停，需重新绑定。`
+                : "到点独立启动后台程序，不占用终端、不需工作目录。使用本机 CLI 的登录和配置，每次新建对话。"}
             任务自动保存，重启恢复。执行时需保持 awei-work
-            运行；后台过期待执行任务补发一次，中断请求不自动重发。后台最多并行 4
-            个，单次限时 30 分钟。
+            运行；过期待执行任务补发一次，中断请求不自动重发。
+            {target === "codex" || target === "claude"
+              ? "后台最多并行 4 个，单次限时 30 分钟。"
+              : ""}
           </p>
           {storageError ? (
             <p role="alert" className="text-xs text-destructive">
@@ -294,7 +309,7 @@ export function ScheduleButton({ leafId }: Props) {
           <div className="mt-0.5 flex max-h-64 flex-col gap-1 overflow-y-auto border-t border-border/60 pt-2">
             {jobs.length === 0 ? (
               <p className="text-[11px] text-muted-foreground">
-                没有排队的命令。
+                没有定时任务。
               </p>
             ) : (
               jobs.map((job) => (
@@ -320,9 +335,11 @@ export function ScheduleButton({ leafId }: Props) {
                     <span className="block text-muted-foreground text-[10px]">
                       {job.target === "terminal"
                         ? `终端 #${job.leaf_id}`
-                        : job.target === "codex"
-                          ? "Codex 后台"
-                          : "Claude Code 后台"}{" "}
+                        : job.target === "pet"
+                          ? "宠物提示"
+                          : job.target === "codex"
+                            ? "Codex 后台"
+                            : "Claude Code 后台"}{" "}
                       · {new Date(job.fire_at).toLocaleString()}
                     </span>
                     {job.last_result ? (

@@ -14,6 +14,7 @@ use super::shell_init;
 use crate::modules::workspace::WorkspaceEnv;
 
 const AGENT_EVENT: &str = "terax:agent-signal";
+static NEXT_AGENT_RUN: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn valid_grid(cols: u16, rows: u16) -> bool {
     cols >= 2
@@ -127,10 +128,53 @@ pub struct Session {
 
 #[derive(Clone)]
 struct AgentRun {
+    id: u64,
     name: String,
     session_id: Option<String>,
     started_at: std::time::SystemTime,
     file: Option<std::path::PathBuf>,
+    /// What the agent is doing, carried forward from the last transition.
+    /// `AGENT_EVENT` only tells a window that happens to be listening; keeping
+    /// it here is what lets a client opened later - the pet, a phone that just
+    /// connected - see the current state instead of waiting for the next
+    /// change.
+    phase: AgentPhase,
+    /// When that phase began, which is what turns it into "working for 4m" or
+    /// "finished 20s ago" without a second clock anywhere.
+    phase_at: std::time::Instant,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AgentPhase {
+    Idle,
+    Working,
+    /// Stopped and waiting on you: a permission prompt or a question.
+    Attention,
+    /// The turn ended on its own.
+    Finished,
+}
+
+impl AgentPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgentPhase::Idle => "idle",
+            AgentPhase::Working => "working",
+            AgentPhase::Attention => "attention",
+            AgentPhase::Finished => "finished",
+        }
+    }
+}
+
+/// What an agent is doing right now, for a client that was not listening when
+/// it last changed.
+pub struct AgentStatus {
+    pub run_id: u64,
+    pub agent: String,
+    pub phase: AgentPhase,
+    /// Seconds the agent has been in this phase.
+    pub for_secs: u64,
+    pub started_at_ms: i64,
+    pub transcript: Option<Arc<crate::modules::transcript::Transcript>>,
 }
 
 #[derive(serde::Serialize)]
@@ -200,6 +244,81 @@ impl Session {
         self.agent.lock().ok()?.as_ref().map(|run| run.name.clone())
     }
 
+    pub fn agent_run(&self) -> Option<(u64, String)> {
+        if self.exited.load(Ordering::Acquire) {
+            return None;
+        }
+        let agent = self.agent.lock().ok()?;
+        let run = agent.as_ref()?;
+        Some((run.id, run.name.clone()))
+    }
+
+    /// The agent's name together with what it is doing and for how long.
+    pub fn agent_status(&self, cwd: Option<&str>) -> Option<AgentStatus> {
+        let run = self.agent.lock().ok()?.as_ref()?.clone();
+        let transcript = cwd.and_then(|cwd| self.web_transcript(cwd, &run.name));
+        let current = self.agent.lock().ok()?;
+        let current = current.as_ref()?;
+        if current.id != run.id || self.exited.load(Ordering::Acquire) {
+            return None;
+        }
+        let mut phase = current.phase;
+        let mut for_secs = current.phase_at.elapsed().as_secs();
+        if current.phase_at == run.phase_at {
+            if let Some(transcript) = transcript.as_ref() {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()?
+                    .as_millis();
+                let started = run
+                    .started_at
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()?
+                    .as_millis();
+                let phase_started = now.saturating_sub(run.phase_at.elapsed().as_millis());
+                let observed = transcript
+                    .working
+                    .as_ref()
+                    .map(|working| (AgentPhase::Working, working.since))
+                    .or_else(|| {
+                        transcript.messages.last().map(|message| {
+                            let phase = if message.role == "assistant" {
+                                AgentPhase::Finished
+                            } else {
+                                AgentPhase::Idle
+                            };
+                            (phase, message.at)
+                        })
+                    });
+                if let Some((observed, at)) = observed {
+                    // Old turns in a resumed session cannot describe this run.
+                    if let Ok(at) = u128::try_from(at) {
+                        if at >= started
+                            && at <= now
+                            && (phase == AgentPhase::Idle || at >= phase_started)
+                        {
+                            phase = observed;
+                            for_secs = ((now - at) / 1000).min(u64::MAX as u128) as u64;
+                        }
+                    }
+                }
+            }
+        }
+        Some(AgentStatus {
+            run_id: run.id,
+            agent: run.name,
+            phase,
+            for_secs,
+            started_at_ms: run
+                .started_at
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                .min(i64::MAX as u128) as i64,
+            transcript,
+        })
+    }
+
     pub fn agent_resume(&self, cwd: &str) -> Option<AgentResume> {
         let run = self.agent.lock().ok()?.as_ref()?.clone();
         if !matches!(run.name.as_str(), "claude" | "codex") {
@@ -209,9 +328,7 @@ impl Session {
         let id = crate::modules::sessions::session_id_for_file(&file, &run.name, cwd)?;
         let current = self.agent.lock().ok()?;
         current.as_ref().filter(|current| {
-            current.started_at == run.started_at
-                && current.name == run.name
-                && current.file.as_ref() == Some(&file)
+            current.id == run.id && current.name == run.name && current.file.as_ref() == Some(&file)
         })?;
         Some(AgentResume {
             agent: run.name,
@@ -225,14 +342,12 @@ impl Session {
         cwd: &str,
         agent: &str,
     ) -> Option<Arc<crate::modules::transcript::Transcript>> {
-        let generation = self.agent.lock().ok()?.as_ref()?.started_at;
+        let generation = self.agent.lock().ok()?.as_ref()?.id;
         let file = self.web_transcript_file(cwd)?;
         let transcript = crate::modules::transcript::read_file(&file, agent)?;
         let current = self.agent.lock().ok()?;
         current.as_ref().filter(|run| {
-            run.started_at == generation
-                && run.name == agent
-                && run.file.as_deref() == Some(file.as_path())
+            run.id == generation && run.name == agent && run.file.as_deref() == Some(file.as_path())
         })?;
         Some(transcript)
     }
@@ -250,9 +365,7 @@ impl Session {
         )?;
         let mut agent = self.agent.lock().ok()?;
         let current = agent.as_mut()?;
-        if current.started_at != run.started_at
-            || current.name != run.name
-            || current.session_id != run.session_id
+        if current.id != run.id || current.name != run.name || current.session_id != run.session_id
         {
             return None;
         }
@@ -272,14 +385,13 @@ impl Session {
             .web_submissions
             .lock()
             .map_err(|_| "submission state unavailable")?;
-        if let Some((_, result)) = submissions.iter().find(|(key, _)| key == id) {
+        if let Some((_, result)) = submissions.iter().find(|(stored, _)| stored == id) {
             return result.clone();
         }
         let result = (|| {
             if self.exited.load(Ordering::Acquire) {
                 return Err("terminal exited".to_string());
             }
-            let bracketed = self.web_agent().as_deref() == Some("codex");
             if text.contains("\x1b[201~") || text.contains("\x1b[200~") {
                 return Err("paste boundary in input".to_string());
             }
@@ -287,6 +399,12 @@ impl Session {
                 .writer
                 .lock()
                 .map_err(|_| "terminal input unavailable")?;
+            if self.exited.load(Ordering::Acquire) {
+                return Err("terminal exited".into());
+            }
+            let agent = self.agent.lock().map_err(|_| "agent state unavailable")?;
+            let bracketed = agent.as_ref().is_some_and(|run| run.name == "codex");
+            drop(agent);
             if bracketed {
                 writer.write_all(b"\x1b[200~").map_err(|e| e.to_string())?;
             }
@@ -296,10 +414,8 @@ impl Session {
             if bracketed {
                 writer.write_all(b"\x1b[201~").map_err(|e| e.to_string())?;
             }
-            writer
-                .write_all(b"\r")
-                .and_then(|_| writer.flush())
-                .map_err(|e| e.to_string())
+            writer.write_all(b"\r").map_err(|e| e.to_string())?;
+            writer.flush().map_err(|e| e.to_string())
         })();
         if submissions.len() == 128 {
             submissions.pop_front();
@@ -646,16 +762,37 @@ pub fn spawn(
                                         })
                                         .unwrap_or(now);
                                     *agent_name_r.lock().unwrap() = Some(AgentRun {
+                                        id: NEXT_AGENT_RUN.fetch_add(1, Ordering::Relaxed),
                                         name: agent.clone(),
                                         session_id: session_id.clone(),
                                         started_at,
                                         file: None,
+                                        phase: AgentPhase::Idle,
+                                        phase_at: Instant::now(),
                                     });
                                 }
                                 Transition::Exited => {
                                     *agent_name_r.lock().unwrap() = None;
                                 }
-                                _ => {}
+                                // A phase change on a shell that never
+                                // announced an agent has nothing to record:
+                                // the marker arrived without a `started`, so
+                                // there is no run to attach it to.
+                                Transition::Working
+                                | Transition::Attention
+                                | Transition::Finished => {
+                                    let phase = match &t {
+                                        Transition::Attention => AgentPhase::Attention,
+                                        Transition::Finished => AgentPhase::Finished,
+                                        _ => AgentPhase::Working,
+                                    };
+                                    if let Some(run) = agent_name_r.lock().unwrap().as_mut() {
+                                        if run.phase != phase {
+                                            run.phase = phase;
+                                            run.phase_at = Instant::now();
+                                        }
+                                    }
+                                }
                             }
                             let _ = app_reader.emit(AGENT_EVENT, t.into_signal(id));
                         });

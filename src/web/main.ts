@@ -861,7 +861,9 @@ function paintSchedules() {
           ? "Codex 后台"
           : job.target === "claude"
             ? "Claude Code 后台"
-            : `终端 #${job.leaf_id}`;
+            : job.target === "pet"
+              ? "宠物提示"
+              : `终端 #${job.leaf_id}`;
       cmd.textContent = `${target}${job.daily_time ? ` · 每天 ${job.daily_time}` : ""}：${job.command}`;
       row.appendChild(cmd);
 

@@ -3,6 +3,7 @@ pub mod gateway;
 pub mod git;
 pub mod history;
 pub mod lsp;
+pub mod pet;
 pub mod proc;
 pub mod pty;
 pub mod schedule;

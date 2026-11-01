@@ -20,7 +20,7 @@ export function copyButton(readText: () => string): HTMLButtonElement {
   return button;
 }
 
-async function copyText(text: string): Promise<void> {
+export async function copyText(text: string): Promise<void> {
   try {
     if (navigator.clipboard) {
       await navigator.clipboard.writeText(text);

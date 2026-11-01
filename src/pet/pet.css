@@ -1,0 +1,201 @@
+html,
+body,
+#pet-root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+.pet-window {
+  position: relative;
+  --pet-icon-width: 68px;
+  --pet-icon-height: 88px;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.pet-companion {
+  position: absolute;
+  left: 364px;
+  top: 456px;
+  width: var(--pet-icon-width);
+  height: var(--pet-icon-height);
+}
+.pet-launcher {
+  position: relative;
+  display: flex;
+  width: var(--pet-icon-width);
+  height: var(--pet-icon-height);
+  flex: none;
+  align-self: flex-end;
+  align-items: center;
+  justify-content: center;
+  outline-offset: -4px;
+}
+.pet-project-dots {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  height: 16px;
+  justify-content: center;
+}
+.pet-project-dot {
+  display: flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pet-project-dot > span {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid #111718;
+  border-radius: 50%;
+  background: #ff2638;
+}
+.pet-project-dot[data-status="finished"] > span {
+  background: #32bf72;
+}
+.pet-project-dot[data-status="attention"] > span {
+  background: #ffb329;
+}
+.pet-project-dot[data-status="unknown"] > span {
+  background: #9aa6ad;
+}
+.pet-project-dot:disabled {
+  cursor: default;
+}
+.pet-project-more {
+  align-self: flex-start;
+  height: 14px;
+  margin-top: 1px;
+  border: 1px solid #111718;
+  background: #f9d512;
+  color: #111718;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+.pet-drag {
+  flex: none;
+  cursor: grab;
+  touch-action: none;
+  border-radius: 12px;
+}
+.pet-drag:active {
+  cursor: grabbing;
+}
+.pet-sprite {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.pet-artwork {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+.pet-notification::after {
+  position: absolute;
+  left: var(--pet-tail-left, 316px);
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  content: "";
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.pet-notification {
+  position: absolute;
+  display: flex;
+  min-height: min(64px, var(--pet-bubble-height, 98px));
+  flex: none;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 3px 12px #00000016;
+  container-type: inline-size;
+}
+.pet-notification-body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  padding: 0 6px;
+  text-align: left;
+  cursor: pointer;
+}
+.pet-notification-sentence {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.pet-notification[data-reminder="true"] .pet-notification-sentence {
+  display: block;
+  max-height: 60px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.pet-window[data-below="true"] .pet-notification::after {
+  top: -7px;
+  bottom: auto;
+  transform: rotate(225deg);
+}
+.pet-icon-button {
+  position: relative;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.pet-icon-button:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.pet-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.pet-window button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.pet-window .pet-launcher:focus-visible {
+  outline: none;
+}
+.pet-launcher:focus-visible::after {
+  position: absolute;
+  bottom: 0;
+  left: calc(50% - 6px);
+  width: 12px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ring);
+  content: "";
+}

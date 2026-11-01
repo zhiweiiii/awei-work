@@ -836,6 +836,21 @@ export function serializeLeaf(
   return slot ? serializeSlot(slot, maxChars) : null;
 }
 
+export function readLeafScreen(leafId: number): string[] | null {
+  const slot =
+    slots.find((slot) => slot.currentLeafId === leafId) ??
+    slots.find(
+      (slot) => slot.currentLeafId === null && slot.retainedLeafId === leafId,
+    );
+  if (!slot) return null;
+  const buffer = slot.term.buffer.active;
+  const lines: string[] = [];
+  for (let row = buffer.baseY; row < buffer.baseY + slot.term.rows; row++)
+    lines.push(buffer.getLine(row)?.translateToString(true) ?? "");
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  return lines.slice(-64);
+}
+
 function serializeSlot(slot: Slot, maxChars?: number): SerializeOutput {
   let snapshot: string | null = null;
   try {

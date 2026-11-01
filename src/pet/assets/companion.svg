@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1328" height="1328" role="img" aria-labelledby="title desc">
+  <title id="title">笑脸杯子</title>
+  <desc id="desc">蓝色杯身、黄色杯盖和红色圆钮，搭配笑脸、白色波浪杯底与贴纸边框。</desc>
+
+  <!-- Smooth white sticker border; the canvas stays transparent. -->
+  <path fill="#fff" stroke="#fff" stroke-width="27" stroke-linejoin="round"
+    d="M236 77 A20 20 0 0 1 276 77
+       C343 78 391 82 397 99 L401 130
+       Q403 147 377 153 L361 413
+       Q359 449 256 449 Q153 449 151 413 L135 153
+       Q109 147 111 130 L115 99
+       C121 82 169 78 236 77Z"/>
+
+  <g stroke="#111718" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Cup body and the soft, balanced wave at its base. -->
+    <path fill="#08B9EB"
+      d="M135 150H377L361 413Q359 449 256 449Q153 449 151 413Z"/>
+    <path fill="#fff"
+      d="M149.4 387
+         C158 376 172 377 180 394
+         S203 408 216 394
+         S242 377 251 394
+         S274 409 288 394
+         S314 377 325 391
+         S348 407 362.6 387
+         L361 413Q359 449 256 449Q153 449 151 413Z"/>
+
+    <!-- The lid shares one clean edge with its elliptical top. -->
+    <path fill="#F9D512"
+      d="M115 99L111 130C109 148 174 158 256 158S403 148 401 130L397 99Z"/>
+    <ellipse cx="256" cy="99" rx="141" ry="22" fill="#F9D512"/>
+    <circle cx="256" cy="77" r="20" fill="#FF2638"/>
+
+    <!-- Rounded smile and short cheek marks. -->
+    <g fill="none">
+      <path d="M185 278C194 316 220 333 256 333S318 316 327 278"/>
+      <path d="M175 281Q186 282 195 273M317 273Q326 282 337 281"/>
+    </g>
+  </g>
+
+  <g fill="#111718">
+    <ellipse cx="219" cy="238" rx="13" ry="19"/>
+    <ellipse cx="293" cy="238" rx="13" ry="19"/>
+  </g>
+</svg>

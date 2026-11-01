@@ -28,6 +28,7 @@ export type ThemeModePref = ThemePref;
 type ThemeProviderProps = {
   children: React.ReactNode;
   defaultMode?: ThemePref;
+  showBackground?: boolean;
 };
 
 type ThemeProviderState = {
@@ -91,6 +92,7 @@ function resolveTheme(id: string, custom: Theme[]): Theme {
 export function ThemeProvider({
   children,
   defaultMode = "system",
+  showBackground = true,
 }: ThemeProviderProps) {
   const [mode, setModeState] = useState<ThemePref>(() =>
     readFastMode(defaultMode),
@@ -260,7 +262,7 @@ export function ThemeProvider({
 
   return (
     <ThemeProviderContext.Provider value={value}>
-      <SurfaceLayer />
+      {showBackground ? <SurfaceLayer /> : null}
       {children}
     </ThemeProviderContext.Provider>
   );

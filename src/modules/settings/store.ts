@@ -92,6 +92,8 @@ export type Preferences = {
   hideGitIgnored: boolean;
   /** Let a running agent have the shortcuts it needs (Ctrl+P, Ctrl+T, …). */
   agentKeyPassthrough: boolean;
+  /** Whether the floating pet was on screen when the app last closed. */
+  petOpen: boolean;
   /** Fold a run of directories that each hold only the next one. */
   compactFolders: boolean;
   /** Relays Claude Code can be pointed at, and which one is selected. */
@@ -165,6 +167,7 @@ const KEY_EDITOR_WORD_WRAP = "editorWordWrap";
 const KEY_SHOW_HIDDEN = "showHidden";
 const KEY_HIDE_GIT_IGNORED = "hideGitIgnored";
 const KEY_AGENT_KEY_PASSTHROUGH = "agentKeyPassthrough";
+const KEY_PET_OPEN = "petOpen";
 const KEY_COMPACT_FOLDERS = "compactFolders";
 const KEY_CLAUDE_GATEWAY = "claudeGateway";
 /** Parameter sets written by the panel this replaced. Read once, to carry an
@@ -232,6 +235,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showHidden: false,
   hideGitIgnored: false,
   agentKeyPassthrough: true,
+  petOpen: false,
   compactFolders: true,
   claudeGateway: { providers: [], current: null } as ClaudeGatewayConfig,
   explorerGitDecorations: true,
@@ -344,6 +348,7 @@ export async function loadPreferences(): Promise<Preferences> {
     agentKeyPassthrough:
       get<boolean>(KEY_AGENT_KEY_PASSTHROUGH) ??
       DEFAULT_PREFERENCES.agentKeyPassthrough,
+    petOpen: get<boolean>(KEY_PET_OPEN) ?? DEFAULT_PREFERENCES.petOpen,
     compactFolders:
       get<boolean>(KEY_COMPACT_FOLDERS) ?? DEFAULT_PREFERENCES.compactFolders,
     claudeGateway:
@@ -529,6 +534,10 @@ export async function setHideGitIgnored(value: boolean): Promise<void> {
 
 export async function setAgentKeyPassthrough(value: boolean): Promise<void> {
   await writePref(KEY_AGENT_KEY_PASSTHROUGH, value);
+}
+
+export async function setPetOpen(value: boolean): Promise<void> {
+  await writePref(KEY_PET_OPEN, value);
 }
 
 export async function setCompactFolders(value: boolean): Promise<void> {
@@ -791,6 +800,7 @@ export async function onPreferencesChange(
     [KEY_SHOW_HIDDEN]: "showHidden",
     [KEY_HIDE_GIT_IGNORED]: "hideGitIgnored",
     [KEY_AGENT_KEY_PASSTHROUGH]: "agentKeyPassthrough",
+    [KEY_PET_OPEN]: "petOpen",
     [KEY_COMPACT_FOLDERS]: "compactFolders",
     [KEY_CLAUDE_GATEWAY]: "claudeGateway",
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",

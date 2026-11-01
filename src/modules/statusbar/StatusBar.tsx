@@ -5,6 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { type ReactNode, useEffect, useState } from "react";
 import { ClaudeProviderButton } from "./ClaudeProviderButton";
 import { ClaudeUsageButton } from "./ClaudeUsageButton";
+import { PetToggle } from "./PetToggle";
 import { ScheduleButton } from "./ScheduleButton";
 import { WebStatusBadge } from "./WebStatusBadge";
 
@@ -38,6 +39,7 @@ export function StatusBar({ windowBar, onOpenSettings, activeLeafId }: Props) {
         {windowBar}
       </div>
       <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+        <PetToggle />
         <ClaudeUsageButton />
         <ClaudeProviderButton leafId={activeLeafId ?? null} />
         <ScheduleButton leafId={activeLeafId ?? null} />

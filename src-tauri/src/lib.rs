@@ -1,7 +1,7 @@
 pub mod modules;
 
 use modules::{
-    fs, gateway, git, history, lsp, pty, schedule, sessions, shell, usage, web, workspace,
+    fs, gateway, git, history, lsp, pet, pty, schedule, sessions, shell, usage, web, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -237,6 +237,14 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
+                .skip_initial_state("pet-canvas-v1")
+                .map_label(|label| {
+                    if label == "pet" {
+                        "pet-canvas-v1"
+                    } else {
+                        label
+                    }
+                })
                 .build(),
         )
         .plugin(tauri_plugin_autostart::Builder::new().build())
@@ -255,6 +263,7 @@ pub fn run() {
         .manage(fs::grep::ContentSearchState::default())
         .manage(fs::search::FileSearchState::default())
         .manage(schedule::ScheduleState::default())
+        .manage(pet::PetWindowState::default())
         .manage({
             let registry = workspace::WorkspaceRegistry::default();
             workspace::bootstrap_registry(&registry);
@@ -292,6 +301,15 @@ pub fn run() {
             web::web_set_password,
             web::web_has_custom_password,
             gateway::gateway_test_provider,
+            pet::pet_sessions,
+            pet::pet_set_notification,
+            pet::choices::pet_choice_status_reply,
+            pet::pet_reveal,
+            pet::open_pet_window,
+            pet::close_pet_window,
+            pet::pet_window_open,
+            pet::reminders::pet_reminders,
+            pet::reminders::pet_dismiss_reminder,
             sessions::agent_sessions,
             usage::claude_usage,
             usage::claude_usage_cached,
@@ -388,15 +406,22 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             match event {
-                // The settings window only hides on close, so the main window
-                // going away has to take it with it or the process lingers
-                // with no visible window.
+                tauri::RunEvent::WindowEvent {
+                    ref label,
+                    event: tauri::WindowEvent::Focused(focused),
+                    ..
+                } if label == "main" => {
+                    pet::context_changed(app, Some(focused));
+                }
+                // Auxiliary windows must not keep the process alive after main closes.
                 tauri::RunEvent::WindowEvent {
                     ref label,
                     event: tauri::WindowEvent::Destroyed,
                     ..
                 } if label == "main" => {
+                    pet::shutdown(app);
                     close_settings_window(app);
+                    app.exit(0);
                 }
                 tauri::RunEvent::Ready => {
                     // Start the web terminal bridge once every managed state is

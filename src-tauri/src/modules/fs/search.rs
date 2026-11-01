@@ -1,9 +1,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use grep_matcher::Matcher;
 use ignore::WalkBuilder;
-use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
-use nucleo_matcher::{Config, Matcher, Utf32Str};
 use serde::Serialize;
 
 use super::{blocking, to_canon};
@@ -73,16 +72,6 @@ pub async fn fs_search(
     .await
 }
 
-pub fn fs_search_impl(
-    root: String,
-    query: String,
-    limit: Option<usize>,
-    workspace: Option<WorkspaceEnv>,
-    show_hidden: Option<bool>,
-) -> Result<SearchResult, String> {
-    search_with_cancel(root, query, limit, workspace, show_hidden, &|| false)
-}
-
 fn search_with_cancel(
     root: String,
     query: String,
@@ -91,14 +80,13 @@ fn search_with_cancel(
     show_hidden: Option<bool>,
     cancel: &dyn Fn() -> bool,
 ) -> Result<SearchResult, String> {
-    let q = query.trim();
-    if q.is_empty() {
+    if query.trim().is_empty() {
         return Ok(SearchResult {
             hits: Vec::new(),
             truncated: false,
         });
     }
-    let cap = limit.unwrap_or(200).min(1000);
+    let cap = limit.unwrap_or(200).clamp(1, 1000);
     let show_hidden = show_hidden.unwrap_or(false);
     let workspace = WorkspaceEnv::from_option(workspace);
     let root_path = resolve_path(&root, &workspace);
@@ -106,15 +94,9 @@ fn search_with_cancel(
         return Err(format!("not a directory: {root}"));
     }
 
-    // Score each entry as it is visited and keep only the matches. Building a
-    // SearchHit for every one of up to MAX_SCANNED entries and ranking
-    // afterwards allocated three strings per entry on every keystroke, which is
-    // what made typing here stutter.
-    let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
-    let pattern = Pattern::parse(q, CaseMatching::Smart, Normalization::Smart);
-    let mut buf = Vec::new();
+    let matcher = super::literal::matcher(&query.replace('\\', "/"))?;
 
-    let mut scored: Vec<(u32, SearchHit)> = Vec::new();
+    let mut scored: Vec<(u8, SearchHit)> = Vec::new();
     let mut scanned: usize = 0;
     let mut truncated = false;
 
@@ -146,7 +128,7 @@ fn search_with_cancel(
             break;
         }
         // Superseded by a newer keystroke — drop the rest of the walk.
-        if scanned.is_multiple_of(512) && cancel() {
+        if cancel() {
             truncated = true;
             break;
         }
@@ -158,18 +140,31 @@ fn search_with_cancel(
             Ok(r) => to_canon(r),
             Err(_) => continue,
         };
-        let Some(score) = pattern.score(Utf32Str::new(&rel, &mut buf), &mut matcher) else {
+        if !matcher
+            .is_match(rel.as_bytes())
+            .map_err(|error| error.to_string())?
+        {
             continue;
-        };
+        }
         let name = path
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         let is_dir = dent.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let rank = matcher
+            .find(name.as_bytes())
+            .map_err(|error| error.to_string())?
+            .map_or(2, |matched| {
+                if matched.start() == 0 && matched.end() == name.len() {
+                    0
+                } else {
+                    1
+                }
+            });
         scored.push((
-            score,
+            rank,
             SearchHit {
-                path: display_path(path, &root_path, &root, &workspace),
+                path: to_canon(path),
                 rel,
                 name,
                 is_dir,
@@ -177,10 +172,10 @@ fn search_with_cancel(
         ));
     }
 
-    // Best score first; ties break toward shorter relative paths.
     scored.sort_by(|a, b| {
-        b.0.cmp(&a.0)
+        a.0.cmp(&b.0)
             .then_with(|| a.1.rel.len().cmp(&b.1.rel.len()))
+            .then_with(|| a.1.rel.cmp(&b.1.rel))
     });
     truncated |= scored.len() > cap;
     let hits = scored.into_iter().take(cap).map(|(_, h)| h).collect();
@@ -276,13 +271,4 @@ pub fn fs_list_files_impl(
 
     files.sort_by_key(|a| a.to_lowercase());
     Ok(ListFilesResult { files, truncated })
-}
-
-fn display_path(
-    path: &std::path::Path,
-    _root_path: &std::path::Path,
-    _root_display: &str,
-    _workspace: &WorkspaceEnv,
-) -> String {
-    to_canon(path)
 }

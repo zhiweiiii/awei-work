@@ -1468,6 +1468,10 @@ function findChoices(screen: string[]): ChoiceMenu | null {
   };
 }
 
+export function hasAgentChoices(screen: string[]): boolean {
+  return findChoices(screen) !== null;
+}
+
 /** A splash screen: a logo and a version line, and essentially nothing else.
  *
  *  Judged on how much text there is, not on the ratio of drawing to text. A

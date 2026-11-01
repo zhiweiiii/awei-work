@@ -57,7 +57,7 @@ export type TranscriptMsg = {
  *  tab that was closed, cannot be the thing counting down. */
 export type ScheduledJob = {
   id: number;
-  target?: "terminal" | "codex" | "claude";
+  target?: "terminal" | "codex" | "claude" | "pet";
   daily_time?: string | null;
   running?: boolean;
   finished?: boolean;
@@ -214,7 +214,8 @@ export function isSchedulesMsg(value: unknown): value is SchedulesMsg {
         (j.target === undefined ||
           j.target === "terminal" ||
           j.target === "codex" ||
-          j.target === "claude") &&
+          j.target === "claude" ||
+          j.target === "pet") &&
         optionalText(j.daily_time) &&
         [j.running, j.finished, j.paused].every(
           (v) => v === undefined || typeof v === "boolean",

@@ -1,0 +1,10 @@
+{
+  "identifier": "pet-capability",
+  "description": "Floating companion window",
+  "windows": ["pet"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "store:default"
+  ]
+}

@@ -45,6 +45,7 @@ pub enum Target {
     Terminal,
     Codex,
     Claude,
+    Pet,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -410,7 +411,8 @@ pub fn start(app: tauri::AppHandle) {
         let mut changed = false;
         for job in due {
             if job.target != Target::Terminal {
-                if state.active.load(Ordering::Relaxed) >= 4 {
+                let agent = job.target != Target::Pet;
+                if agent && state.active.load(Ordering::Relaxed) >= 4 {
                     continue;
                 }
                 {
@@ -430,14 +432,27 @@ pub fn start(app: tauri::AppHandle) {
                         break;
                     }
                 }
-                state.active.fetch_add(1, Ordering::Relaxed);
+                if agent {
+                    state.active.fetch_add(1, Ordering::Relaxed);
+                }
                 state.revision.fetch_add(1, Ordering::Relaxed);
                 let worker_app = app.clone();
                 std::thread::spawn(move || {
-                    let result = background::run(&worker_app, &job);
+                    let result = if job.target == Target::Pet {
+                        tauri::async_runtime::block_on(super::pet::show_reminder(
+                            worker_app.clone(),
+                            format!("{}:{}", job.id, job.fire_at),
+                            job.command.clone(),
+                        ))
+                        .map(|()| "已交给宠物提醒".to_string())
+                    } else {
+                        background::run(&worker_app, &job)
+                    };
                     let state = worker_app.state::<ScheduleState>();
                     state.finish_background(&job, result);
-                    state.active.fetch_sub(1, Ordering::Relaxed);
+                    if agent {
+                        state.active.fetch_sub(1, Ordering::Relaxed);
+                    }
                     let _ = worker_app.emit(SCHEDULE_EVENT, state.list());
                     let error = state.storage_error.lock().unwrap().clone();
                     if let Some(error) = error {

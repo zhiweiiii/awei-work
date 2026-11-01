@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback } from "react";
 import { type AsyncQueryState, useAsyncQuery } from "./useAsyncQuery";
 
-export const CONTENT_SEARCH_MIN_QUERY = 2;
+export const CONTENT_SEARCH_MIN_QUERY = 1;
 const LIMIT = 80;
 const DEBOUNCE_MS = 140;
 
@@ -63,6 +63,6 @@ export function useContentSearch(
     minLength: options?.minLength ?? CONTENT_SEARCH_MIN_QUERY,
     debounceMs: options?.debounceMs ?? DEBOUNCE_MS,
     run,
-    scopeKey: `${workspaceKey}\0${root ?? ""}`,
+    scopeKey: JSON.stringify([workspaceKey, root, term]),
   });
 }

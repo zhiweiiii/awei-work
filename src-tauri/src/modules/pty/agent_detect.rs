@@ -21,6 +21,7 @@ enum State {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Status {
+    Idle,
     Working,
     Waiting,
 }
@@ -96,7 +97,7 @@ impl AgentDetector {
             state: State::Ground,
             osc: Vec::new(),
             armed: false,
-            status: Status::Working,
+            status: Status::Idle,
         }
     }
 
@@ -164,7 +165,7 @@ impl AgentDetector {
 
     fn disarm(&mut self) {
         self.armed = false;
-        self.status = Status::Working;
+        self.status = Status::Idle;
     }
 
     fn finish_osc<F: FnMut(Transition)>(&mut self, emit: &mut F) {
@@ -230,7 +231,7 @@ impl AgentDetector {
                 let (started_at_ms, cmd) = command_start(cmd);
                 if let Some(agent) = self.match_agent(cmd) {
                     self.armed = true;
-                    self.status = Status::Working;
+                    self.status = Status::Idle;
                     emit(Transition::Started {
                         session_id: resume_id(cmd),
                         agent,
@@ -249,7 +250,7 @@ impl AgentDetector {
     fn ensure_armed<F: FnMut(Transition)>(&mut self, agent: &str, emit: &mut F) {
         if !self.armed {
             self.armed = true;
-            self.status = Status::Working;
+            self.status = Status::Idle;
             emit(Transition::Started {
                 agent: agent.to_string(),
                 session_id: None,

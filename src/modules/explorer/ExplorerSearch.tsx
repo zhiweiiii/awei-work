@@ -10,6 +10,7 @@ import {
 import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
+import { Tabs } from "radix-ui";
 import {
   forwardRef,
   useCallback,
@@ -24,12 +25,15 @@ import { fileIconUrl } from "./lib/iconResolver";
 type Props = {
   rootPath: string;
   onOpenFile: (path: string, line?: number) => void;
-  onActiveChange?: (active: boolean) => void;
+  onOpenDirectory: (path: string) => void;
+  resultsVisible: boolean;
+  onShowResults: () => void;
 };
 
 export type ExplorerSearchHandle = {
   focus: () => void;
   isFocused: () => boolean;
+  refresh: () => void;
 };
 
 type FileHit = {
@@ -53,19 +57,14 @@ const MIN_QUERY_LEN = 1;
 const FILE_SEARCH_DEBOUNCE_MS = 250;
 const FILE_SEARCH_LIMIT = 50;
 
-// A content search walks the whole tree, so it costs far more than the
-// file-name pass. Hold off until the term is specific enough to be worth it
-// and until typing has actually settled.
-const CONTENT_MIN_QUERY = 3;
+const CONTENT_MIN_QUERY = 1;
 const CONTENT_DEBOUNCE_MS = 300;
 
-/**
- * Persistent search bar in the explorer sidebar. Matches both file names
- * (fuzzy) and file contents, so it behaves like the Ctrl+Shift+P "find in
- * files" search but also surfaces file-name hits.
- */
 export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
-  function ExplorerSearch({ rootPath, onOpenFile, onActiveChange }, ref) {
+  function ExplorerSearch(
+    { rootPath, onOpenFile, onOpenDirectory, resultsVisible, onShowResults },
+    ref,
+  ) {
     const [q, setQ] = useState("");
     const [activeIndex, setActiveIndex] = useState(0);
     const workspace = LOCAL_WORKSPACE;
@@ -74,14 +73,8 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
     const scrollRef = useRef<HTMLDivElement>(null);
     const lastKeyboardNavAt = useRef(0);
 
-    // Trim once: keeping the raw value out of the effect deps stops a trailing
-    // space from re-firing both searches.
-    const query = q.trim();
-    const active = query.length > 0;
-
-    useEffect(() => {
-      onActiveChange?.(active);
-    }, [active, onActiveChange]);
+    const query = q;
+    const active = query.trim().length > 0;
 
     const runFileSearch = useCallback(
       async (query: string) => {
@@ -106,7 +99,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
       minLength: MIN_QUERY_LEN,
       debounceMs: FILE_SEARCH_DEBOUNCE_MS,
       run: runFileSearch,
-      scopeKey: `${workspaceKey}\0${rootPath}`,
+      scopeKey: JSON.stringify([workspaceKey, rootPath, query]),
     });
     const fileHits = files.results;
 
@@ -142,13 +135,13 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
     }, [results.length]);
 
     useEffect(() => {
-      if (active && results.length > 0) {
+      if (resultsVisible && active && results.length > 0) {
         const el = scrollRef.current?.querySelector(
           `[data-index="${activeIndex}"]`,
         );
         el?.scrollIntoView({ block: "nearest" });
       }
-    }, [activeIndex, results, active]);
+    }, [activeIndex, results, active, resultsVisible]);
 
     useImperativeHandle(
       ref,
@@ -159,21 +152,29 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
           });
         },
         isFocused: () => document.activeElement === inputRef.current,
+        refresh: () => {
+          files.retry();
+          content.retry();
+        },
       }),
-      [],
+      [files.retry, content.retry],
     );
 
     const openHit = useCallback(
       (r: (typeof results)[number]) => {
-        if (r.kind === "file") onOpenFile(r.hit.path);
+        if (r.kind === "file" && r.hit.is_dir) onOpenDirectory(r.hit.path);
+        else if (r.kind === "file") onOpenFile(r.hit.path);
         else onOpenFile(r.hit.path, r.hit.line);
       },
-      [onOpenFile],
+      [onOpenFile, onOpenDirectory],
     );
 
     return (
       <div
-        className={cn("flex min-h-0 flex-col", active ? "flex-1" : "shrink-0")}
+        className={cn(
+          "flex min-h-0 flex-col",
+          resultsVisible ? "flex-1" : "shrink-0",
+        )}
       >
         <div className="relative shrink-0 px-2 py-1.5">
           <HugeiconsIcon
@@ -185,10 +186,14 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
           <input
             ref={inputRef}
             value={q}
-            placeholder="Search files & contents…"
+            placeholder="搜索文件名和内容"
+            aria-label="搜索文件名和内容"
+            title="忽略大小写，按文字包含匹配，空格和符号按原文搜索"
+            onFocus={onShowResults}
             onChange={(e) => {
               setQ(e.target.value);
               setActiveIndex(0);
+              onShowResults();
             }}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing || e.keyCode === 229) return;
@@ -220,83 +225,49 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
                 inputRef.current?.focus();
               }}
               className="absolute top-1/2 right-3.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label="Clear search"
+              aria-label="清空搜索"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
             </button>
           ) : null}
         </div>
 
-        {active ? (
-          <div className="min-h-0 flex-1">
-            <ScrollArea className="h-full">
-              <div className="py-1" ref={scrollRef}>
-                {loading && results.length === 0 ? (
-                  <div className="px-3 py-2 text-[11px] text-muted-foreground">
-                    Searching…
-                  </div>
-                ) : searchError && results.length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={retry}
-                    className="w-full px-3 py-2 text-left text-[11px] text-destructive hover:bg-accent/50"
-                  >
-                    Search failed — retry
-                  </button>
-                ) : results.length === 0 ? (
-                  <div className="px-3 py-2 text-[11px] text-muted-foreground">
-                    No matches
-                  </div>
-                ) : (
-                  results.map((r, index) => {
-                    const isSelected = index === activeIndex;
-                    if (r.kind === "file") {
-                      const url = r.hit.is_dir ? null : fileIconUrl(r.hit.name);
-                      return (
-                        <button
-                          key={`file:${r.hit.path}`}
-                          type="button"
-                          data-index={index}
-                          onClick={() => openHit(r)}
-                          onMouseEnter={() => {
-                            if (Date.now() - lastKeyboardNavAt.current > 250) {
-                              setActiveIndex(index);
-                            }
-                          }}
-                          className={cn(
-                            "flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs transition-colors",
-                            isSelected
-                              ? "bg-accent text-foreground"
-                              : "hover:bg-accent/50 text-foreground/80",
-                          )}
-                          title={r.hit.path}
-                        >
-                          {url ? (
-                            <img
-                              src={url}
-                              alt=""
-                              className="size-3.5 shrink-0"
-                            />
-                          ) : (
-                            <HugeiconsIcon
-                              icon={Search01Icon}
-                              size={12}
-                              strokeWidth={1.75}
-                              className="shrink-0 text-muted-foreground"
-                            />
-                          )}
-                          <span className="truncate">{r.hit.name}</span>
-                          <span className="ml-auto truncate text-[10px] text-muted-foreground">
-                            {r.hit.rel}
-                          </span>
-                        </button>
-                      );
-                    }
-                    const hit = r.hit;
-                    const url = fileIconUrl(basename(hit.rel));
+        <Tabs.Content
+          value="search"
+          forceMount
+          tabIndex={-1}
+          className="min-h-0 flex-1 outline-none data-[state=inactive]:hidden"
+        >
+          <ScrollArea className="h-full">
+            <div className="py-1" ref={scrollRef}>
+              {!active ? (
+                <div className="px-3 py-2 text-[11px] text-muted-foreground">
+                  输入文字搜索文件名和内容，忽略大小写
+                </div>
+              ) : loading && results.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-muted-foreground">
+                  正在搜索…
+                </div>
+              ) : searchError && results.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={retry}
+                  className="w-full px-3 py-2 text-left text-[11px] text-destructive hover:bg-accent/50"
+                >
+                  搜索失败，点击重试
+                </button>
+              ) : results.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-muted-foreground">
+                  没有包含该文字的结果
+                </div>
+              ) : (
+                results.map((r, index) => {
+                  const isSelected = index === activeIndex;
+                  if (r.kind === "file") {
+                    const url = r.hit.is_dir ? null : fileIconUrl(r.hit.name);
                     return (
                       <button
-                        key={`content:${hit.path}:${hit.line}`}
+                        key={`file:${r.hit.path}`}
                         type="button"
                         data-index={index}
                         onClick={() => openHit(r)}
@@ -311,37 +282,74 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
                             ? "bg-accent text-foreground"
                             : "hover:bg-accent/50 text-foreground/80",
                         )}
-                        title={`${hit.rel}:${hit.line}`}
+                        title={r.hit.path}
                       >
-                        <img src={url} alt="" className="size-3.5 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
-                          {hit.text.trim()}
-                        </span>
-                        <span className="shrink-0 truncate text-[10px] text-muted-foreground">
-                          {basename(hit.rel)}:{hit.line}
+                        {url ? (
+                          <img src={url} alt="" className="size-3.5 shrink-0" />
+                        ) : (
+                          <HugeiconsIcon
+                            icon={Search01Icon}
+                            size={12}
+                            strokeWidth={1.75}
+                            className="shrink-0 text-muted-foreground"
+                          />
+                        )}
+                        <span className="truncate">{r.hit.name}</span>
+                        <span className="ml-auto truncate text-[10px] text-muted-foreground">
+                          {r.hit.rel}
                         </span>
                       </button>
                     );
-                  })
-                )}
-                {loading && results.length > 0 ? (
-                  <div className="px-3 py-1.5 text-[10px] text-muted-foreground">
-                    Updating results…
-                  </div>
-                ) : null}
-                {searchError && results.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={retry}
-                    className="w-full px-3 py-1.5 text-left text-[11px] text-destructive hover:bg-accent/50"
-                  >
-                    Some results could not be loaded. Retry
-                  </button>
-                ) : null}
-              </div>
-            </ScrollArea>
-          </div>
-        ) : null}
+                  }
+                  const hit = r.hit;
+                  const url = fileIconUrl(basename(hit.rel));
+                  return (
+                    <button
+                      key={`content:${hit.path}:${hit.line}`}
+                      type="button"
+                      data-index={index}
+                      onClick={() => openHit(r)}
+                      onMouseEnter={() => {
+                        if (Date.now() - lastKeyboardNavAt.current > 250) {
+                          setActiveIndex(index);
+                        }
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs transition-colors",
+                        isSelected
+                          ? "bg-accent text-foreground"
+                          : "hover:bg-accent/50 text-foreground/80",
+                      )}
+                      title={`${hit.rel}:${hit.line}`}
+                    >
+                      <img src={url} alt="" className="size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
+                        {hit.text.trim()}
+                      </span>
+                      <span className="shrink-0 truncate text-[10px] text-muted-foreground">
+                        {basename(hit.rel)}:{hit.line}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+              {loading && results.length > 0 ? (
+                <div className="px-3 py-1.5 text-[10px] text-muted-foreground">
+                  正在更新结果…
+                </div>
+              ) : null}
+              {searchError && results.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={retry}
+                  className="w-full px-3 py-1.5 text-left text-[11px] text-destructive hover:bg-accent/50"
+                >
+                  部分结果未能加载，点击重试
+                </button>
+              ) : null}
+            </div>
+          </ScrollArea>
+        </Tabs.Content>
       </div>
     );
   },
