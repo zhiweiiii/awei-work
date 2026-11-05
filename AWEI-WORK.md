@@ -4,7 +4,7 @@ awei-work 会把本文件作为工作区 agent 记忆加载。它规定项目边
 
 ## 项目与方向
 
-awei-work 是面向 Claude Code / Codex 的轻量、终端优先开发工作区，基于 crynta/terax-ai，保留 Apache 2.0 许可和出处。仅支持 Windows 本机工作区；不构建 macOS/Linux，不重新实现 AI agent 或传统 IDE。
+awei-work 是面向 Claude Code / Codex 的轻量、终端优先开发工作区，基于 crynta/terax-ai，保留 Apache 2.0 许可和出处。仅构建 Windows，支持本机工作区及独立 SSH 连接；不构建 macOS/Linux，不重新实现 AI agent 或传统 IDE。
 
 技术栈：Tauri 2 / Rust、React 19 / TypeScript、xterm.js、CodeMirror 6。主二进制 dev/release 均为 awei-work。为继承已安装版本的配置，bundle id 保持 app.crynta.terax，旧存储键、目录、IPC 和 shell 环境标识不作为品牌更名；不删除旧数据。包管理器只用 pnpm，绝不 npm/npx/yarn。
 
@@ -19,10 +19,11 @@ awei-work 是面向 Claude Code / Codex 的轻量、终端优先开发工作区�
 - src/components/ui/ 和生成 AI Elements 原语不手改，升级通过对应生成流程。
 - 保留用户未提交改动；不用破坏性 Git 重置，不无差别终止用户进程。
 - 仓库不保留测试、测试配置或专用依赖；临时验证放仓库外，区分模拟与真实设备。
+- 新功能不过度测试、不过度防御性编程。优先简单直接的实现，只处理明确需求、实际风险及已发生的问题，不为假设场景堆叠检查、兜底或抽象；可逆、低影响改动不专门编写测试，不为覆盖率或重复证明实现而搭建大型验证流程。
 
 ## 修改后检查
 
-前端运行 pnpm lint 和 pnpm check-types；Rust 运行 cargo fmt --all -- --check 与 cargo clippy --all-targets --locked -- -D warnings。相关构建、浏览器/逻辑验证按改动补充；依赖或入口改动检查产物体积、结构引用和安全公告。
+检查按改动范围执行：前端改动运行 pnpm lint 和 pnpm check-types；Rust 改动运行 cargo fmt --all -- --check 与 cargo clippy --all-targets --locked -- -D warnings。必要时补一次相关主流程或故障复现验证；已通过后，只有新增修改、失败或尚未解决的实际问题才补充检查，不无故重复或扩大验证范围。依赖或入口改动检查产物体积、结构引用和安全公告。
 
 静态检查与隔离验证不代替真实 CLI、Windows IME、iOS 或安装升级验收，不声明软件没有任何 bug。
 
@@ -31,6 +32,10 @@ awei-work 是面向 Claude Code / Codex 的轻量、终端优先开发工作区�
 Rust 负责文件、进程、网络、PTY、Git 和授权，webview 通过 invoke 或授权插件访问。命令注册以 src-tauri/src/lib.rs 为准，插件权限在 capabilities/，不能替代参数及路径校验。磁盘、UNC、进程等待和昂贵密码计算进入 blocking 池。
 
 PTY Session 固定所属空间环境，ID 不复用；ConPTY 创建和最终关闭使用生命周期锁，所有子进程用 Windows Job Object 回收后代。前端按实际 shellKind 引用路径，不拼任意 shell 源码。桌面输入逐 Session 串行，有积压上限，退出拒绝剩余输入。
+
+SSH 是独立连接专区，不复用本机路径、Git、agent 历史或自动恢复身份。Rust 共享认证后的 SSH transport，终端使用原生 xterm 输入，SFTP 按需启动并逐批限制目录与递归预算。密码/密钥口令仅在 Windows 凭据管理器保存；首次及变更主机指纹需要明确确认，旧连接或已取消请求不能切到新会话。
+
+连接还支持动态执行代码，脚本单独存 .mjs 文件，每次运行使用新的 Node 进程，允许 agent 在应用运行中修改；不监控文件并自动执行，界面保存核对内容哈希。旧网页/本机程序入口迁移时不得覆盖已存在的脚本，保留凭据和身份。代码有当前用户权限，进程通过 Job Object 回收，凭据用管道传递、不写脚本或命令行。浏览器连接、Chrome 扩展、网页步骤与 OCR 已移除；动态代码只提供本机程序启动、日志、等待及当前连接凭据，不提供浏览器 RPC。旧脚本不覆盖，旧网页元数据仅兼容迁移保留，不执行网页动作。本机程序接口按完整路径与参数数组启动，不拼 shell。
 
 运行中 TUI 使用 xterm 原生光标/textarea/IME。不改私有接口，不在输出中反复聚焦，不定时强制刷新。shell 输入栏仅在提示符及前台检查确认后接管，新命令代次作废旧检查。alternate screen 不使用外层历史滚动条。
 

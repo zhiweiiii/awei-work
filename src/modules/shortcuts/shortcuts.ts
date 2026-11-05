@@ -43,7 +43,9 @@ export type ShortcutId =
   | "settings.open"
   | "sidebar.toggle"
   | "editor.undo"
-  | "editor.redo";
+  | "editor.redo"
+  | "editor.navigateBack"
+  | "editor.navigateForward";
 
 export type ShortcutGroup =
   | "General"
@@ -316,6 +318,18 @@ export const SHORTCUTS: Shortcut[] = [
     label: "切换禅模式",
     group: "View",
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "'" }],
+  },
+  {
+    id: "editor.navigateBack",
+    label: "后退跳转位置",
+    group: "Editor",
+    defaultBindings: [{ [MOD_PROP]: true, key: "ArrowLeft" }],
+  },
+  {
+    id: "editor.navigateForward",
+    label: "前进跳转位置",
+    group: "Editor",
+    defaultBindings: [{ [MOD_PROP]: true, key: "ArrowRight" }],
   },
   // Editor entries are display-only: CodeMirror's historyKeymap binds these
   // keys natively. We register them here so the shortcuts dialog can surface

@@ -1,6 +1,6 @@
 [package]
 name = "awei-work"
-version = "1.0.26"
+version = "1.1.0"
 description = "awei-work, a terminal-first workspace for Claude Code and Codex"
 authors = ["zhiweiiii", "crynta"]
 license = "Apache-2.0"
@@ -31,6 +31,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 getrandom = "0.3"
 portable-pty = "0.9"
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa"] }
+russh-sftp = "3"
+quick-xml = "0.38"
 dirs = "6"
 log = "0.4"
 ignore = "0.4"
@@ -48,6 +51,9 @@ tokio = { version = "1", default-features = false, features = [
 	"rt-multi-thread",
 	"net",
 	"time",
+	"sync",
+	"fs",
+	"io-util",
 ] }
 # The Claude gateway's upstream half. All three are already linked through
 # tauri-plugin-updater, so declaring them costs no extra binary weight.
@@ -65,6 +71,7 @@ rustls = { version = "0.23", default-features = false, features = [
 ] }
 base64 = "0.22"
 sha1 = "0.10"
+sha2 = "0.10"
 tempfile = "3"
 notify = "8.2.0"
 which = "8.0.4"
@@ -75,10 +82,14 @@ argon2 = "0.5.3"
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61.3", features = [
+	"Win32_System_WinRT",
+] }
 windows-sys = { version = "0.61", features = [
 	"Win32_Foundation",
 	"Win32_Graphics_Gdi",
 	"Win32_Security",
+	"Win32_Security_Credentials",
 	"Win32_System_Console",
 	"Win32_System_DataExchange",
 	"Win32_System_JobObjects",

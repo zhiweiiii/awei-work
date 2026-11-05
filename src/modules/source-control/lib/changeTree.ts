@@ -1,4 +1,7 @@
-import type { SourceControlFileEntry } from "../useSourceControlPanel";
+import type {
+  CheckState,
+  SourceControlFileEntry,
+} from "../useSourceControlPanel";
 
 export type ChangeTreeRow =
   | {
@@ -9,6 +12,8 @@ export type ChangeTreeRow =
       count: number;
       collapsed: boolean;
       depth: number;
+      repoRoot: string;
+      checkState: CheckState;
     }
   | {
       kind: "entry";
@@ -21,6 +26,8 @@ type Directory = {
   name: string;
   path: string;
   count: number;
+  checked: number;
+  staged: number;
   files: SourceControlFileEntry[];
   children: Map<string, Directory>;
 };
@@ -34,6 +41,8 @@ export function changeTreeRows(
     name: "",
     path: "",
     count: 0,
+    checked: 0,
+    staged: 0,
     files: [],
     children: new Map(),
   };
@@ -48,12 +57,16 @@ export function changeTreeRows(
           name,
           path: node.path ? `${node.path}/${name}` : name,
           count: 0,
+          checked: 0,
+          staged: 0,
           files: [],
           children: new Map(),
         };
         node.children.set(name, child);
       }
       child.count++;
+      if (entry.checkState === "checked") child.checked++;
+      if (entry.checkState !== "unchecked") child.staged++;
       node = child;
     }
     node.files.push(entry);
@@ -65,20 +78,7 @@ export function changeTreeRows(
     for (const entry of entries)
       result.push({ kind: "entry", key: entry.key, entry, depth });
   };
-  if (root.files.length) {
-    const key = keyFor(root);
-    const collapsed = collapsedGroups.has(key);
-    result.push({
-      kind: "folder-header",
-      key,
-      label: "(root)",
-      path: "",
-      count: root.files.length,
-      collapsed,
-      depth: 0,
-    });
-    if (!collapsed) pushFiles(root.files, 1);
-  }
+  pushFiles(root.files, 0);
 
   const childrenOf = (node: Directory) =>
     [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -110,6 +110,13 @@ export function changeTreeRows(
       count: node.count,
       collapsed,
       depth: item.depth,
+      repoRoot: files[0]?.repoRoot ?? "",
+      checkState:
+        node.checked === node.count
+          ? "checked"
+          : node.staged
+            ? "indeterminate"
+            : "unchecked",
     });
     if (collapsed) continue;
     pushFiles(node.files, item.depth + 1);

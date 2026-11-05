@@ -128,8 +128,7 @@ export const LSP_PRESETS: LspPreset[] = [
     // -Xmx is the only cap that reaches the process actually holding the heap.
     args: ["--jvm-arg=-Xmx2G"],
     languages: { java: "java" },
-    // Without -data the launcher derives a workspace dir from cwd, and sessions
-    // are spawned with cwd = project root, so each project gets its own index.
+    // The native launcher supplies a cache keyed by the full project path.
     rootMarkers: [
       "pom.xml",
       "build.gradle",
@@ -144,7 +143,32 @@ export const LSP_PRESETS: LspPreset[] = [
     // we never show — the build file would silently stop matching the index.
     initializationOptions: {
       settings: {
-        java: { configuration: { updateBuildConfiguration: "automatic" } },
+        java: {
+          configuration: { updateBuildConfiguration: "automatic" },
+          import: {
+            exclusions: [
+              "**/node_modules/**",
+              "**/.metadata/**",
+              "**/archetype-resources/**",
+              "**/META-INF/maven/**",
+              "**/.git/**",
+              "**/.idea/**",
+              "**/target/**",
+              "**/build/**",
+              "**/dist/**",
+              "**/out/**",
+            ],
+          },
+          project: {
+            resourceFilters: [
+              "node_modules",
+              "\\.git",
+              "\\.idea",
+              "\\.metadata",
+            ],
+          },
+          references: { includeDecompiledSources: false },
+        },
       },
     },
     install: {

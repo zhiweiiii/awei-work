@@ -4,7 +4,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -15,7 +14,6 @@ import {
   Add01Icon,
   ArrowDown01Icon,
   Delete02Icon,
-  DashboardSquare01Icon,
   PencilEdit02Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
@@ -77,8 +75,6 @@ export function GroupSwitcher({
     input?.focus();
   }, []);
 
-  const active = spaces.find((s) => s.id === activeId);
-  const label = active?.name ?? "Group";
   const projectsBySpace = useMemo(() => {
     const grouped = new Map<string, TerminalTab[]>();
     for (const project of projects) {
@@ -136,21 +132,10 @@ export function GroupSwitcher({
           variant="ghost"
           size="sm"
           className="h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          title="分组与项目"
-          aria-label="分组与项目"
+          title="切换"
+          aria-label="切换"
         >
-          <HugeiconsIcon
-            icon={DashboardSquare01Icon}
-            size={13}
-            strokeWidth={1.75}
-          />
-          <span className="max-w-24 truncate">{label}</span>
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={9}
-            strokeWidth={2}
-            className="shrink-0 opacity-60"
-          />
+          <span>切换</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -167,11 +152,6 @@ export function GroupSwitcher({
           if (selectedProject.current) event.preventDefault();
         }}
       >
-        <DropdownMenuLabel className="px-2 py-1.5 text-[10.5px] text-muted-foreground">
-          分组 ({spaces.length})
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator className="my-0.5 border-t border-border/30" />
-
         {spaces.map((space) => {
           const isActive = space.id === activeId;
           if (renamingId === space.id) {

@@ -1,4 +1,6 @@
 import { useGroupDeleteGuard } from "@/app/hooks/useGroupDeleteGuard";
+import { useJumpHistory } from "@/modules/editor/lib/useJumpHistory";
+import type { EditorLocation } from "@/modules/editor/lib/navigationHistory";
 import { useLaunchFiles } from "@/app/hooks/useLaunchFiles";
 import { useProjectAgentRestore } from "@/app/hooks/useProjectAgentRestore";
 import {
@@ -9,6 +11,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { agentFileRef } from "@/lib/agentRef";
+import { pathIdentity } from "@/lib/pathIdentity";
 import {
   headerProjects,
   useRunningProjects,
@@ -31,7 +34,7 @@ import { explorerFileState } from "@/modules/explorer/lib/openFileState";
 import { FileHistoryDialog } from "@/modules/git-history";
 import type { GitHistoryPaneHandle } from "@/modules/git-history/GitHistoryPane";
 import { Header, SessionHistoryMenu } from "@/modules/header";
-import { setLspNavigator } from "@/modules/lsp";
+import { setLspNavigator, useJavaProjectIndex } from "@/modules/lsp";
 import type { MarkdownPreviewPaneHandle } from "@/modules/markdown/MarkdownPreviewPane";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
@@ -123,23 +126,28 @@ import {
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import { useWebTerminalSync } from "./hooks/useWebTerminalSync";
+import { useSsh } from "@/modules/ssh/store";
+import { lazy, Suspense } from "react";
+
+const SshWorkspace = lazy(() => import("@/modules/ssh/SshWorkspace"));
 
 function HeaderTabs({
   active,
   sourceControlChanged,
   onSelect,
 }: {
-  active: SidebarViewId | null;
+  active: SidebarViewId | "ssh" | null;
   sourceControlChanged: number;
-  onSelect: (id: SidebarViewId) => void;
+  onSelect: (id: SidebarViewId | "ssh") => void;
 }) {
-  const tabs: { id: SidebarViewId; label: string; badge?: number }[] = [
+  const tabs: { id: SidebarViewId | "ssh"; label: string; badge?: number }[] = [
     { id: "explorer", label: "文件" },
     {
       id: "source-control",
       label: "版本",
       badge: sourceControlChanged,
     },
+    { id: "ssh", label: "SSH" },
   ];
   return (
     <>
@@ -147,6 +155,7 @@ function HeaderTabs({
         <button
           key={t.id}
           type="button"
+          aria-pressed={active === t.id}
           onClick={() => onSelect(t.id)}
           className={
             active === t.id
@@ -170,10 +179,22 @@ import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceHome } from "./hooks/useWorkspaceHome";
 
 export default function App() {
+  const sshVisible = useSsh((state) => state.visible);
+  const sshWorkspaceId = useSsh((state) => state.workspaceId);
+  const sshActive = sshWorkspaceId !== null;
+  const [sshSidebarHost, setSshSidebarHost] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [sshWorkspaceHost, setSshWorkspaceHost] =
+    useState<HTMLDivElement | null>(null);
+  const [sshLoaded, setSshLoaded] = useState(false);
+  useEffect(() => {
+    if (sshVisible) setSshLoaded(true);
+  }, [sshVisible]);
   const {
     tabs,
     activeId,
-    setActiveId,
+    setActiveId: setLocalActiveId,
     allocId,
     booted,
     replaceTabs,
@@ -187,14 +208,14 @@ export default function App() {
     newBlockTab,
     newCommandTab,
     newPrivateTab,
-    openFileTab,
+    openFileTab: openLocalFileTab,
     pinTab,
     newPreviewTab,
     newMarkdownTab,
     setMarkdownView,
     setOverrideLanguage,
-    openGitDiffTab,
-    openCommitHistoryTab,
+    openGitDiffTab: openLocalGitDiffTab,
+    openCommitHistoryTab: openLocalHistoryTab,
     openCommitFileDiffTab,
     closeTab,
     updateTab,
@@ -207,6 +228,40 @@ export default function App() {
     closeActivePane,
     closePaneByLeaf,
   } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
+  const setActiveId = useCallback(
+    (id: number) => {
+      useSsh.setState({ workspaceId: null });
+      setLocalActiveId(id);
+    },
+    [setLocalActiveId],
+  );
+  const openFileTab = useCallback(
+    (...args: Parameters<typeof openLocalFileTab>) => {
+      useSsh.setState({ workspaceId: null });
+      return openLocalFileTab(...args);
+    },
+    [openLocalFileTab],
+  );
+  const openGitDiffTab = useCallback(
+    (...args: Parameters<typeof openLocalGitDiffTab>) => {
+      useSsh.setState({ workspaceId: null });
+      return openLocalGitDiffTab(...args);
+    },
+    [openLocalGitDiffTab],
+  );
+  const openCommitHistoryTab = useCallback(
+    (...args: Parameters<typeof openLocalHistoryTab>) => {
+      useSsh.setState({ workspaceId: null });
+      return openLocalHistoryTab(...args);
+    },
+    [openLocalHistoryTab],
+  );
+  const localSelection = useRef(activeId);
+  useEffect(() => {
+    if (localSelection.current !== activeId)
+      useSsh.setState({ workspaceId: null });
+    localSelection.current = activeId;
+  }, [activeId]);
 
   // Mirror `tabs` into a ref so callbacks scheduled with `setTimeout`
   // (e.g. cdInNewTab) read the latest pane state instead of a stale closure.
@@ -328,8 +383,9 @@ export default function App() {
   // react to the phone asking to activate a terminal.
   useWebTerminalSync({
     terminalTabs: allTerminalTabs,
-    activeId,
+    activeId: sshActive ? -1 : activeId,
     activateTab: (id, leafId, spaceId) => {
+      useSsh.getState().hide();
       useSpaces.getState().setActive(spaceId);
       setActiveSpaceForNewTabs(spaceId);
       activateProject(id);
@@ -722,14 +778,17 @@ export default function App() {
   });
 
   const openNewTab = useCallback(() => {
+    useSsh.getState().hide();
     newTab(inheritedCwdForNewTab());
   }, [newTab, inheritedCwdForNewTab]);
 
   const openNewPrivateTab = useCallback(() => {
+    useSsh.getState().hide();
     newPrivateTab(inheritedCwdForNewTab());
   }, [newPrivateTab, inheritedCwdForNewTab]);
 
   const openNewBlockTab = useCallback(() => {
+    useSsh.getState().hide();
     newBlockTab(inheritedCwdForNewTab());
   }, [newBlockTab, inheritedCwdForNewTab]);
 
@@ -743,6 +802,7 @@ export default function App() {
 
   const handleOpenFile = useCallback(
     (path: string, pin?: boolean) => {
+      useSsh.setState({ workspaceId: null });
       // Explorer clicks keep separate windows; capacity eviction is handled by WindowBar.
       if (isMarkdownPath(path))
         newMarkdownTab(path, currentOwnerTabId ?? undefined);
@@ -929,6 +989,16 @@ export default function App() {
     }
     return [active, ...entries];
   }, [multiRepo.repoStatusEntries, sourceControl.status]);
+  const explorerGitRepos = useMemo(() => {
+    const heads = multiRepo.repos;
+    const active = sourceControl.status;
+    return active &&
+      !heads.some(
+        (head) => pathIdentity(head.repoRoot) === pathIdentity(active.repoRoot),
+      )
+      ? [active, ...heads]
+      : heads;
+  }, [multiRepo.repos, sourceControl.status]);
 
   const openPreviewTab = useCallback(
     (url: string) => {
@@ -990,6 +1060,57 @@ export default function App() {
 
   const [zenMode, setZenMode] = useState(false);
 
+  const pendingEditorNavigation = useRef<
+    Map<number, { line?: number; character?: number; focus: boolean }>
+  >(new Map());
+  const getCurrentEditorLocation = useCallback(
+    () => editorRefs.current.get(activeIdRef.current)?.getLocation() ?? null,
+    [],
+  );
+  const openEditorLocation = useCallback(
+    ({ path, line, character }: EditorLocation) => {
+      const id = openFileTab(path, true, {
+        ownerTabId: currentOwnerTabId ?? undefined,
+      });
+      if (id == null) return false;
+      const handle = editorRefs.current.get(id);
+      if (handle) handle.gotoLine(line, { character });
+      else
+        pendingEditorNavigation.current.set(id, {
+          line,
+          character,
+          focus: true,
+        });
+      return true;
+    },
+    [openFileTab, currentOwnerTabId],
+  );
+  const jumpHistory = useJumpHistory(
+    `${sourceControlSpaceId}\0${currentOwnerTabId ?? "unowned"}`,
+    openEditorLocation,
+    getCurrentEditorLocation,
+  );
+  const openContentHit = useCallback(
+    (path: string, line: number, character?: number, origin?: EditorLocation) =>
+      jumpHistory.navigate({ path, line, character }, origin),
+    [jumpHistory.navigate],
+  );
+  const getOpenDocument = useCallback(
+    (path: string) => {
+      const target = tabsRef.current.find(
+        (tab) =>
+          tab.kind === "editor" &&
+          tab.spaceId === sourceControlSpaceId &&
+          (tab.ownerTabId ?? null) === currentOwnerTabId &&
+          pathIdentity(tab.path) === pathIdentity(path),
+      );
+      return target
+        ? (editorRefs.current.get(target.id)?.getText() ?? null)
+        : null;
+    },
+    [sourceControlSpaceId, currentOwnerTabId],
+  );
+
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
       "commandPalette.open": () => openCommandPalette("commands"),
@@ -1049,6 +1170,8 @@ export default function App() {
       "view.zenMode": () => setZenMode((v) => !v),
       "editor.undo": () => editorRefs.current.get(activeId)?.undo(),
       "editor.redo": () => editorRefs.current.get(activeId)?.redo(),
+      "editor.navigateBack": jumpHistory.back,
+      "editor.navigateForward": jumpHistory.forward,
     }),
     [
       activeId,
@@ -1073,6 +1196,8 @@ export default function App() {
       zoomIn,
       zoomOut,
       zoomReset,
+      jumpHistory.back,
+      jumpHistory.forward,
     ],
   );
 
@@ -1096,6 +1221,16 @@ export default function App() {
 
   const shortcutsDisabled = useCallback(
     (id: ShortcutId, e: KeyboardEvent) => {
+      if (id === "editor.navigateBack" || id === "editor.navigateForward") {
+        const target =
+          (e.target as HTMLElement | null) ?? document.activeElement;
+        return (
+          activeTab?.kind !== "editor" ||
+          !!target?.closest("input, textarea, select, [role=dialog], .xterm") ||
+          (!!(target as HTMLElement | null)?.isContentEditable &&
+            !target?.closest(".cm-content"))
+        );
+      }
       // A running agent binds these itself, and the global handler captures on
       // window and calls preventDefault, so they never reached it: pressing
       // Ctrl+P inside opencode opened awei-work's command palette instead. Giving
@@ -1169,7 +1304,9 @@ export default function App() {
     ],
   );
 
-  useGlobalShortcuts(shortcutHandlers, { isDisabled: shortcutsDisabled });
+  useGlobalShortcuts(shortcutHandlers, {
+    isDisabled: (id, event) => sshActive || shortcutsDisabled(id, event),
+  });
 
   const registerTerminalHandle = useCallback(
     (leafId: number, h: TerminalPaneHandle | null) => {
@@ -1187,7 +1324,11 @@ export default function App() {
         if (pending != null) {
           pendingEditorNavigation.current.delete(id);
           if (pending.line === undefined) h.focus();
-          else h.gotoLine(pending.line, { focus: pending.focus });
+          else
+            h.gotoLine(pending.line, {
+              focus: pending.focus,
+              character: pending.character,
+            });
         }
       } else {
         editorRefs.current.delete(id);
@@ -1287,6 +1428,7 @@ export default function App() {
   // active terminal tab, so the status bar / new groups stay in context.
   const activeCwd =
     activeTerminalLeafCwd ?? currentOwnerTab?.cwd ?? explorerRoot;
+  useJavaProjectIndex(activeCwd);
 
   // ── Group (space) management ────────────────────────────────────────
   const handleCreateGroup = useCallback(
@@ -1370,6 +1512,7 @@ export default function App() {
 
   const handleSelectProject = useCallback(
     (project: TerminalTab) => {
+      useSsh.getState().hide();
       const current = tabsRef.current.find(
         (tab) => tab.id === project.id && tab.spaceId === project.spaceId,
       );
@@ -1444,26 +1587,10 @@ export default function App() {
     ],
   );
 
-  const pendingEditorNavigation = useRef<
-    Map<number, { line?: number; focus: boolean }>
-  >(new Map());
-  const openContentHit = useCallback(
-    (path: string, line: number) => {
-      const id = openFileTab(path, true, {
-        ownerTabId: currentOwnerTabId ?? undefined,
-      });
-      if (id == null) return;
-      const h = editorRefs.current.get(id);
-      if (h) h.gotoLine(line);
-      else pendingEditorNavigation.current.set(id, { line, focus: true });
-    },
-    [openFileTab, currentOwnerTabId],
-  );
-
   useEffect(() => {
-    setLspNavigator({ openFile: openContentHit });
+    setLspNavigator({ openFile: openContentHit, getDocument: getOpenDocument });
     return () => setLspNavigator(null);
-  }, [openContentHit]);
+  }, [openContentHit, getOpenDocument]);
 
   /** Runs a command in the terminal on screen. Resuming a past conversation is
    *  a command the user picked, so it is submitted rather than just inserted. */
@@ -1505,18 +1632,29 @@ export default function App() {
               onNew={openNewTab}
               onNewBlock={openNewBlockTab}
               onNewPrivate={openNewPrivateTab}
-              onNewPreview={() => openPreviewTab("")}
-              onNewEditor={() => setNewEditorOpen(true)}
-              onNewGitGraph={openGitGraphFromContext}
+              onNewPreview={() => {
+                useSsh.getState().hide();
+                openPreviewTab("");
+              }}
+              onNewEditor={() => {
+                useSsh.getState().hide();
+                setNewEditorOpen(true);
+              }}
+              onNewGitGraph={() => {
+                useSsh.getState().hide();
+                openGitGraphFromContext();
+              }}
               onClose={handleParkProject}
               onPin={pinTab}
               onRename={handleRenameTab}
               onOverrideLanguage={setOverrideLanguage}
               headerRight={
-                <SessionHistoryMenu
-                  cwd={activeCwd}
-                  onRun={runInActiveTerminal}
-                />
+                !sshActive && (
+                  <SessionHistoryMenu
+                    cwd={activeCwd}
+                    onRun={runInActiveTerminal}
+                  />
+                )
               }
               groupSwitcher={
                 <GroupSwitcher
@@ -1536,18 +1674,33 @@ export default function App() {
               }
               headerTabs={
                 <HeaderTabs
-                  active={sidebarOpen ? sidebarView : null}
+                  active={
+                    sidebarOpen ? (sshVisible ? "ssh" : sidebarView) : null
+                  }
                   sourceControlChanged={
                     multiRepo.repos.length > 0
                       ? multiRepo.aggregatedChanges
                       : sourceControl.changedCount
                   }
                   onSelect={(id) => {
-                    focusMainView();
-                    if (sidebarView === id && sidebarOpen) {
+                    if (id === "ssh") {
+                      if (sshVisible && sidebarOpen) {
+                        sidebarRef.current?.collapse();
+                        return;
+                      }
+                      useSsh.getState().open();
+                      if (!sidebarOpen)
+                        sidebarRef.current?.resize(
+                          `${sidebarWidthRef.current}px`,
+                        );
+                      return;
+                    }
+                    useSsh.setState({ visible: false });
+                    if (!sshActive) focusMainView();
+                    if (!sshVisible && sidebarView === id && sidebarOpen) {
                       sidebarRef.current?.collapse();
                     } else {
-                      persistSidebarView(id as SidebarViewId);
+                      persistSidebarView(id);
                       if (!sidebarOpen) {
                         sidebarRef.current?.resize(
                           `${sidebarWidthRef.current}px`,
@@ -1565,155 +1718,180 @@ export default function App() {
             />
           )}
 
-          <main className="zoom-content flex min-h-0 flex-1 flex-col">
-            <ResizablePanelGroup
-              orientation="horizontal"
-              className="min-h-0 flex-1"
-              onLayoutChanged={(_, { isUserInteraction }) => {
-                const width = sidebarRef.current?.getSize().inPixels ?? 0;
-                persistSidebarWidth(width, isUserInteraction);
-              }}
-            >
-              <ResizablePanel
-                id="sidebar"
-                panelRef={sidebarRef}
-                defaultSize={
-                  initialSidebarCollapsed
-                    ? "0px"
-                    : `${sidebarWidthRef.current}px`
-                }
-                minSize={`${SIDEBAR_MIN_WIDTH}px`}
-                maxSize={`${SIDEBAR_MAX_WIDTH}px`}
-                collapsible
-                collapsedSize={0}
-                onResize={(size) => {
-                  persistSidebarCollapsed(size.inPixels <= 0);
+          <main className="zoom-content relative flex min-h-0 flex-1 flex-col">
+            {(sshVisible || sshLoaded) && (
+              <Suspense fallback={null}>
+                <SshWorkspace
+                  sidebarHost={sshSidebarHost}
+                  workspaceHost={sshWorkspaceHost}
+                />
+              </Suspense>
+            )}
+            <div className="flex min-h-0 flex-1 flex-col">
+              <ResizablePanelGroup
+                orientation="horizontal"
+                className="min-h-0 flex-1"
+                onLayoutChanged={(_, { isUserInteraction }) => {
+                  const width = sidebarRef.current?.getSize().inPixels ?? 0;
+                  persistSidebarWidth(width, isUserInteraction);
                 }}
               >
-                <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
-                  <div
-                    key={sidebarView}
-                    className="min-h-0 flex-1 terax-panel-in"
-                  >
-                    {sidebarView === "explorer" ? (
-                      <FileExplorer
-                        ref={explorerRef}
-                        rootPath={explorerRoot}
-                        gitStatuses={
-                          explorerGitDecorations ? explorerGitStatuses : null
-                        }
-                        activeFilePath={explorerActiveFilePath}
-                        openFilePaths={explorerOpenFilePaths}
-                        onOpenFile={handleOpenFile}
-                        onOpenSearchHit={openContentHit}
-                        onPathRenamed={handlePathRenamed}
-                        onPathDeleted={handlePathDeleted}
-                        onRevealInTerminal={cdInNewTab}
-                        onOpenInSourceControl={
-                          handleOpenRepositoryInSourceControl
-                        }
-                        onOpenGitHistory={handleOpenGitHistoryForPath}
-                        onOpenFileHistory={handleOpenFileHistory}
-                        onAttachToAgent={handleAttachFileToAgent}
-                        pathDropTarget={terminalPathDropTarget}
-                      />
-                    ) : (
-                      <SourceControlPanel
-                        open={sidebarOpen}
-                        sourceControl={sourceControl}
-                        onSendToAgent={sendTextToAgent}
-                        repos={multiRepo.repos}
-                        repoStatusEntries={multiRepo.repoStatusEntries}
-                        applyRepoStatus={multiRepo.applyRepoStatus}
-                        refreshRepoStatus={multiRepo.refreshRepoStatus}
-                        refreshAllRepoStatuses={
-                          multiRepo.refreshAllRepoStatuses
-                        }
-                        syncProgress={multiRepo.syncProgress}
-                        onDismissSyncProgress={multiRepo.clearSyncProgress}
-                        buildPushPlan={multiRepo.buildPushPlan}
-                        pushAllAdvanced={multiRepo.pushAllAdvanced}
-                        onManageRemotes={() => setRemoteManagerOpen(true)}
-                        onCloneRepository={() => setCloneRepositoryOpen(true)}
-                        onOpenDiff={openGitDiffTab}
-                        onOpenGitGraph={openGitGraphFromContext}
-                        onOpenFile={handleOpenFile}
-                        onNavigateToPath={cdInNewTab}
-                        repositoryTarget={sourceControlRepositoryTarget}
-                        onFollowRepositoryContext={
-                          handleFollowRepositoryContext
-                        }
-                        headerExtra={
-                          <RepoBranchSelector
-                            repos={multiRepo.repos}
-                            activeRepo={multiRepo.activeRepo}
-                            activeBranch={
-                              multiRepo.summary.status?.branch ?? null
-                            }
-                            onChangeRepo={multiRepo.setActiveRepo}
-                            onRescan={multiRepo.scanRepos}
-                            onCheckedOut={() =>
-                              void multiRepo.summary.refresh({
-                                remote: "never",
-                                force: true,
-                              })
-                            }
-                            onOpenPath={cdInNewTab}
-                          />
-                        }
-                      />
-                    )}
+                <ResizablePanel
+                  id="sidebar"
+                  panelRef={sidebarRef}
+                  defaultSize={
+                    initialSidebarCollapsed
+                      ? "0px"
+                      : `${sidebarWidthRef.current}px`
+                  }
+                  minSize={`${SIDEBAR_MIN_WIDTH}px`}
+                  maxSize={`${SIDEBAR_MAX_WIDTH}px`}
+                  collapsible
+                  collapsedSize={0}
+                  onResize={(size) => {
+                    persistSidebarCollapsed(size.inPixels <= 0);
+                  }}
+                >
+                  <div className="relative flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
+                    <div
+                      ref={setSshSidebarHost}
+                      className={`absolute inset-0 ${sshVisible ? "z-10" : "invisible pointer-events-none"}`}
+                    />
+                    <div
+                      key={sidebarView}
+                      className={`min-h-0 flex-1 terax-panel-in ${sshVisible ? "invisible pointer-events-none" : ""}`}
+                      inert={sshVisible ? true : undefined}
+                    >
+                      {sidebarView === "explorer" ? (
+                        <FileExplorer
+                          ref={explorerRef}
+                          rootPath={explorerRoot}
+                          gitRepos={explorerGitRepos}
+                          gitStatuses={
+                            explorerGitDecorations ? explorerGitStatuses : null
+                          }
+                          activeFilePath={explorerActiveFilePath}
+                          openFilePaths={explorerOpenFilePaths}
+                          onOpenFile={handleOpenFile}
+                          onOpenSearchHit={openContentHit}
+                          onPathRenamed={handlePathRenamed}
+                          onPathDeleted={handlePathDeleted}
+                          onRevealInTerminal={cdInNewTab}
+                          onOpenInSourceControl={
+                            handleOpenRepositoryInSourceControl
+                          }
+                          onOpenGitHistory={handleOpenGitHistoryForPath}
+                          onOpenFileHistory={handleOpenFileHistory}
+                          onAttachToAgent={handleAttachFileToAgent}
+                          pathDropTarget={terminalPathDropTarget}
+                        />
+                      ) : (
+                        <SourceControlPanel
+                          open={sidebarOpen}
+                          sourceControl={sourceControl}
+                          onSendToAgent={sendTextToAgent}
+                          repos={multiRepo.repos}
+                          repoStatusEntries={multiRepo.repoStatusEntries}
+                          applyRepoStatus={multiRepo.applyRepoStatus}
+                          refreshRepoStatus={multiRepo.refreshRepoStatus}
+                          refreshAllRepoStatuses={
+                            multiRepo.refreshAllRepoStatuses
+                          }
+                          syncProgress={multiRepo.syncProgress}
+                          onDismissSyncProgress={multiRepo.clearSyncProgress}
+                          buildPushPlan={multiRepo.buildPushPlan}
+                          pushAllAdvanced={multiRepo.pushAllAdvanced}
+                          onManageRemotes={() => setRemoteManagerOpen(true)}
+                          onCloneRepository={() => setCloneRepositoryOpen(true)}
+                          onOpenDiff={openGitDiffTab}
+                          onOpenGitGraph={openGitGraphFromContext}
+                          onOpenFile={handleOpenFile}
+                          onNavigateToPath={cdInNewTab}
+                          repositoryTarget={sourceControlRepositoryTarget}
+                          onFollowRepositoryContext={
+                            handleFollowRepositoryContext
+                          }
+                          headerExtra={
+                            <RepoBranchSelector
+                              repos={multiRepo.repos}
+                              activeRepo={multiRepo.activeRepo}
+                              activeBranch={
+                                multiRepo.summary.status?.branch ?? null
+                              }
+                              onChangeRepo={multiRepo.setActiveRepo}
+                              onRescan={multiRepo.scanRepos}
+                              onCheckedOut={() =>
+                                void multiRepo.summary.refresh({
+                                  remote: "never",
+                                  force: true,
+                                })
+                              }
+                              onOpenPath={cdInNewTab}
+                            />
+                          }
+                        />
+                      )}
+                    </div>
                   </div>
-                </div>
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
-                <div className="flex h-full min-h-0 flex-col">
-                  <div className="relative min-h-0 flex-1">
-                    <WorkspaceSurface
-                      onReopenProject={(id) => {
-                        const project = tabsRef.current.find(
-                          (tab) => tab.id === id,
-                        );
-                        if (project?.kind === "terminal")
-                          handleSelectProject(project);
-                      }}
-                      onNewProject={openNewTab}
-                      spaces={spacesList}
-                      tabs={tabs}
-                      activeId={activeId}
-                      activeTab={activeTab}
-                      registerTerminalHandle={registerTerminalHandle}
-                      onCwd={handleTerminalCwd}
-                      onExit={handleLeafExit}
-                      onFocusLeaf={handleFocusLeaf}
-                      registerEditorHandle={registerEditorHandle}
-                      onEditorDirtyChange={handleEditorDirty}
-                      onEditorCloseTab={disposeTab}
-                      registerPreviewHandle={registerPreviewHandle}
-                      onPreviewUrlChange={handlePreviewUrl}
-                      registerMarkdownHandle={registerMarkdownHandle}
-                      registerGitDiffHandle={registerGitDiffHandle}
-                      onAttachToAgent={handleAttachFileToAgent}
-                      registerGitHistoryHandle={registerGitHistoryHandle}
-                      onOpenCommitFile={openCommitFileDiffTab}
-                      gitHistoryRepos={multiRepo.repos}
-                      onSwitchGitHistoryRepo={handleSwitchHistoryRepo}
-                      onSetMarkdownView={setMarkdownView}
-                      onOpenMarkdownPath={handleOpenFile}
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
+                  <div className="relative h-full min-h-0">
+                    <div
+                      className={`flex h-full min-h-0 flex-col ${sshActive ? "invisible pointer-events-none" : ""}`}
+                      inert={sshActive ? true : undefined}
+                    >
+                      <div className="relative min-h-0 flex-1">
+                        <WorkspaceSurface
+                          onReopenProject={(id) => {
+                            const project = tabsRef.current.find(
+                              (tab) => tab.id === id,
+                            );
+                            if (project?.kind === "terminal")
+                              handleSelectProject(project);
+                          }}
+                          onNewProject={openNewTab}
+                          spaces={spacesList}
+                          tabs={tabs}
+                          activeId={activeId}
+                          activeTab={activeTab}
+                          registerTerminalHandle={registerTerminalHandle}
+                          onCwd={handleTerminalCwd}
+                          onExit={handleLeafExit}
+                          onFocusLeaf={handleFocusLeaf}
+                          registerEditorHandle={registerEditorHandle}
+                          onEditorDirtyChange={handleEditorDirty}
+                          onEditorCloseTab={disposeTab}
+                          registerPreviewHandle={registerPreviewHandle}
+                          onPreviewUrlChange={handlePreviewUrl}
+                          registerMarkdownHandle={registerMarkdownHandle}
+                          registerGitDiffHandle={registerGitDiffHandle}
+                          onAttachToAgent={handleAttachFileToAgent}
+                          registerGitHistoryHandle={registerGitHistoryHandle}
+                          onOpenCommitFile={openCommitFileDiffTab}
+                          gitHistoryRepos={multiRepo.repos}
+                          onSwitchGitHistoryRepo={handleSwitchHistoryRepo}
+                          onSetMarkdownView={setMarkdownView}
+                          onOpenMarkdownPath={handleOpenFile}
+                        />
+                      </div>
+
+                      <WorkspaceInputBar
+                        isBlockTab={isBlockTab}
+                        isTerminalTab={isTerminalTab}
+                        activeLeafId={activeLeafId}
+                        cwd={activeCwd}
+                        home={home}
+                      />
+                    </div>
+                    <div
+                      ref={setSshWorkspaceHost}
+                      className={`absolute inset-0 ${sshActive ? "z-10" : "invisible pointer-events-none"}`}
                     />
                   </div>
-
-                  <WorkspaceInputBar
-                    isBlockTab={isBlockTab}
-                    isTerminalTab={isTerminalTab}
-                    activeLeafId={activeLeafId}
-                    cwd={activeCwd}
-                    home={home}
-                  />
-                </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </div>
           </main>
 
           {!zenMode && (
@@ -1726,6 +1904,7 @@ export default function App() {
                   project={currentOwnerTab}
                   activeId={activeId}
                   onSelect={(id) => {
+                    useSsh.getState().hide();
                     const scope = windowScopeRef.current;
                     const target = tabsRef.current.find((tab) => tab.id === id);
                     if (!target || target.spaceId !== scope.spaceId) return;
@@ -1745,6 +1924,11 @@ export default function App() {
               }
               onOpenSettings={() => void openSettingsWindow()}
               activeLeafId={activeLeafId}
+              activeFilePath={
+                !sshActive && activeTab?.kind === "editor"
+                  ? activeTab.path
+                  : null
+              }
             />
           )}
 

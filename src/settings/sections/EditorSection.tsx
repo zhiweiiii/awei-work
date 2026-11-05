@@ -34,6 +34,7 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { LspServersGroup } from "../components/LspServersGroup";
+import { JavaIndexCaches } from "../components/JavaIndexCaches";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 
@@ -160,6 +161,7 @@ export function EditorSection() {
       </div>
 
       <LspServersGroup />
+      <JavaIndexCaches />
     </div>
   );
 }

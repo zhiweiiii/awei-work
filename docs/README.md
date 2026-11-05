@@ -6,6 +6,7 @@
 
 - [架构与项目窗口](architecture.md)：模块入口、IPC、分组/文件归属、保存和 Git。
 - [终端与输入](terminal.md)：PTY、ConPTY/Job、输入光标归属、渲染器池与排障。
+- [动态执行代码](connection-code.md)：独立脚本、agent 修改、Chrome 操作、程序启动和执行接口。
 - [手机访问](mobile.md)：认证、共享会话、首屏/实时输出、对话显示和发送确认。
 - [Agent 配套功能](agents.md)：Claude/Codex 历史与自动恢复、用量、定时任务和供应商网关。
 - [开发、安全与发布](maintenance.md)：运行检查、权限边界、构建版本及发布流程。

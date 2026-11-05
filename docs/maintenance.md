@@ -1,6 +1,6 @@
 # 开发、安全与发布
 
-开发约定以根目录 [AWEI-WORK.md](../AWEI-WORK.md) 为准，贡献流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。仅支持 Windows 本机工作区。
+开发约定以根目录 [AWEI-WORK.md](../AWEI-WORK.md) 为准，贡献流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。仅构建 Windows，本机工作区与 SSH 连接独立管理。
 
 ## 运行与检查
 
@@ -23,6 +23,8 @@ cargo clippy --all-targets --locked -- -D warnings
 依赖/模块入口变更额外检查 `pnpm knip --include 'files,dependencies,unlisted,unresolved'` 与生产依赖审计，不机械删除内部仍调用的 exports。默认仓库不保存测试及测试依赖；必要临时验证在仓库外进行，并明确模拟与真实设备边界。
 
 开发与正式构建使用主程序及手机内嵌页，不再构建或分发辅助 CLI。主二进制 dev/release 都叫 `awei-work`；Windows 运行中的实例会锁 exe。不要为释放构建锁无差别结束用户进程。编译缓存 `target/` 与安装包不是同一物，清理会增加下次构建时间。
+
+内置 Java 服务仍需安装 JDTLS 和其支持的 JDK。首次启用时从 Maven Central 下载固定版本 Lombok 1.18.48，并验证内置 SHA256 后原子缓存，限时 30 秒、最多 10 MiB；后续只校验本机缓存，损坏时重新下载。未访问网络成功时普通 Java 功能仍可启动，恢复网络后可点击当前 Java 文件状态栏的语言服务入口重启。缓存位于应用 cache 目录的 `lsp/lombok/`，项目索引在 `lsp/jdtls/`；不修改项目 POM/Gradle、原 JDTLS 安装或其他编辑器配置。接入依据见 [Lombok 执行路径](https://projectlombok.org/contributing/lombok-execution-path) 与 [JDTLS 启动参数](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/main/org.eclipse.jdt.ls.product/scripts/jdtls.py)。
 
 ## 安全边界
 

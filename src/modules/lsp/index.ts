@@ -6,5 +6,7 @@ export { useLspRuntimeStore } from "./lib/runtimeStore";
 export {
   lspFormatDocument,
   notifyDocumentSaved,
+  notifyNavigationSourceChanged,
 } from "./lib/sessionManager";
 export { useLspExtension } from "./lib/useLspExtension";
+export { useJavaProjectIndex } from "./lib/useJavaProjectIndex";

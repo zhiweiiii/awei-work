@@ -24,6 +24,7 @@ if (import.meta.env.DEV && import.meta.env.VITE_REACT_SCAN === "true") {
 }
 
 // Reap PTY sessions orphaned by a prior webview load before any tab spawns.
+await invoke("ssh_disconnect_all").catch(() => {});
 await invoke("pty_close_all").catch(() => {});
 
 // Seed before first paint so default tab mounts at target cwd (no flicker).

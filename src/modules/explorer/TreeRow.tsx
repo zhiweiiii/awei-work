@@ -31,6 +31,7 @@ export type EntryRowProps = {
   onOpenFile: (path: string, pin?: boolean) => void;
   onSelectPath: (path: string) => void;
   gitStatusCode?: GitStatusCode | null;
+  gitBranch?: string | null;
   gitignored?: boolean;
   /** "active" = the tab being viewed, "open" = open in a background tab. */
   openState?: "active" | "open" | null;
@@ -52,6 +53,7 @@ function EntryRowImpl(props: EntryRowProps) {
     onOpenFile,
     onSelectPath,
     gitStatusCode,
+    gitBranch,
     gitignored = false,
     openState = null,
   } = props;
@@ -122,6 +124,7 @@ function EntryRowImpl(props: EntryRowProps) {
         <span className="size-4 shrink-0" />
       )}
       <span
+        title={isDir && gitBranch ? `${name}（${gitBranch}）` : name}
         className={cn(
           "min-w-0 flex-1 truncate",
           !isSelected &&
@@ -131,6 +134,9 @@ function EntryRowImpl(props: EntryRowProps) {
         )}
       >
         {name}
+        {isDir && gitBranch ? (
+          <span className="text-muted-foreground">（{gitBranch}）</span>
+        ) : null}
       </span>
       {openState ? (
         <span

@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -19,6 +20,7 @@ const MEM_POLL_INTERVAL: Duration = Duration::from_secs(30);
 // steady state.
 const MEM_STARTUP_GRACE: Duration = Duration::from_secs(120);
 const DEFAULT_MAX_RSS_MB: u64 = 4096;
+const SHUTDOWN_ID: &str = "awei-work/native-shutdown";
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,9 +36,37 @@ pub struct LspSession {
     child: Arc<SharedChild>,
     stdin: Mutex<Option<ChildStdin>>,
     pub(super) exited: Arc<AtomicBool>,
+    pub(super) java_cache: Option<std::path::PathBuf>,
+    pub(super) shared_index: Option<std::path::PathBuf>,
+    stop_reason: Arc<Mutex<Option<String>>>,
+    shutting_down: AtomicBool,
+    shutdown_reply: Mutex<Option<mpsc::Sender<bool>>>,
 }
 
 impl LspSession {
+    pub(super) fn shutdown(&self, reason: Option<&str>) {
+        if let Some(reason) = reason {
+            *self.stop_reason.lock().unwrap() = Some(reason.into());
+        }
+        if !self.shutting_down.swap(true, Ordering::AcqRel) && !self.exited.load(Ordering::Acquire)
+        {
+            let (sender, receiver) = mpsc::channel();
+            *self.shutdown_reply.lock().unwrap() = Some(sender);
+            let request = serde_json::json!({"jsonrpc":"2.0", "id":SHUTDOWN_ID, "method":"shutdown", "params":null});
+            if self.write_message(&request.to_string()).is_ok()
+                && receiver.recv_timeout(Duration::from_secs(5)) == Ok(true)
+            {
+                let _ = self.write_message(r#"{"jsonrpc":"2.0","method":"exit"}"#);
+            }
+            self.shutdown_reply.lock().unwrap().take();
+        }
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !self.exited.load(Ordering::Acquire) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        self.kill();
+    }
+
     pub fn write_message(&self, payload: &str) -> Result<(), String> {
         let mut guard = self.stdin.lock().unwrap();
         let stdin = guard.as_mut().ok_or("lsp session stdin closed")?;
@@ -127,12 +157,31 @@ pub fn spawn(
     };
 
     let exited = Arc::new(AtomicBool::new(false));
+    let cache = app.path().app_cache_dir().ok();
+    let java_cache = cache.as_ref().and_then(|cache| {
+        let expected = super::java_cache::workspace_path(cache, root);
+        let actual = super::java_cache::data_argument(args)?;
+        (std::fs::canonicalize(&actual).ok()? == std::fs::canonicalize(expected).ok()?)
+            .then_some(actual)
+    });
+    let shared_index = {
+        args.iter().find_map(|arg| {
+            arg.strip_prefix("--jvm-arg=-Djdt.core.sharedIndexLocation=")
+                .map(std::path::PathBuf::from)
+        })
+    };
+    let kill_reason: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let session = Arc::new(LspSession {
         #[cfg(windows)]
         _job: job,
         child: child.clone(),
         stdin: Mutex::new(Some(stdin)),
         exited: exited.clone(),
+        java_cache,
+        shared_index,
+        stop_reason: kill_reason.clone(),
+        shutting_down: AtomicBool::new(false),
+        shutdown_reply: Mutex::new(None),
     });
     struct SpawnGuard<'a> {
         session: &'a LspSession,
@@ -156,12 +205,57 @@ pub fn spawn(
         .spawn(move || {
             let mut decoder = FrameDecoder::default();
             let mut buf = [0u8; READ_BUF];
+            let mut indexed = false;
             loop {
                 match stdout.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => match decoder.push(&buf[..n]) {
                         Ok(messages) => {
                             for msg in messages {
+                                if msg.contains(SHUTDOWN_ID) {
+                                    if let Ok(value) =
+                                        serde_json::from_str::<serde_json::Value>(&msg)
+                                    {
+                                        if value.get("id").and_then(|id| id.as_str())
+                                            == Some(SHUTDOWN_ID)
+                                            && value.get("method").is_none()
+                                        {
+                                            if let Some(sender) =
+                                                session_reader.shutdown_reply.lock().unwrap().take()
+                                            {
+                                                let _ = sender.send(value.get("error").is_none());
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                }
+                                if !indexed
+                                    && session_reader.java_cache.is_some()
+                                    && msg.contains("language/status")
+                                {
+                                    if let Ok(value) =
+                                        serde_json::from_str::<serde_json::Value>(&msg)
+                                    {
+                                        if value["method"] == "language/status"
+                                            && matches!(
+                                                value["params"]["type"].as_str(),
+                                                Some("Started" | "ServiceReady")
+                                            )
+                                        {
+                                            indexed = true;
+                                            if let Some(directory) = &session_reader.java_cache {
+                                                if let Err(error) = super::java_cache::mark_indexed(
+                                                    directory,
+                                                    session_reader.shared_index.as_deref(),
+                                                ) {
+                                                    log::warn!(
+                                                        "Java index cache metadata: {error}"
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 if on_message.send(Response::new(msg.into_bytes())).is_err() {
                                     log::info!("lsp id={id}: channel closed; killing server");
                                     session_reader.kill();
@@ -221,7 +315,6 @@ pub fn spawn(
         })
         .map_err(|e| e.to_string())?;
 
-    let kill_reason: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     {
         let cap_mb = max_rss_mb.unwrap_or(DEFAULT_MAX_RSS_MB);
         let pid = child.id();

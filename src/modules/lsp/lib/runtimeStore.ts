@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type LspSessionStatus = "starting" | "running" | "error";
+export type LspSessionStatus = "starting" | "indexing" | "running" | "error";
 
 export type LspRuntimeSession = {
   key: string;

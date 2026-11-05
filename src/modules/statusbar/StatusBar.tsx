@@ -8,15 +8,22 @@ import { ClaudeUsageButton } from "./ClaudeUsageButton";
 import { PetToggle } from "./PetToggle";
 import { ScheduleButton } from "./ScheduleButton";
 import { WebStatusBadge } from "./WebStatusBadge";
+import { LspStatusPill } from "@/modules/lsp";
 
 type Props = {
   windowBar: ReactNode;
   onOpenSettings: () => void;
   /** The terminal a queued command runs in. Null when there is none. */
   activeLeafId?: number | null;
+  activeFilePath?: string | null;
 };
 
-export function StatusBar({ windowBar, onOpenSettings, activeLeafId }: Props) {
+export function StatusBar({
+  windowBar,
+  onOpenSettings,
+  activeLeafId,
+  activeFilePath,
+}: Props) {
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,6 +46,7 @@ export function StatusBar({ windowBar, onOpenSettings, activeLeafId }: Props) {
         {windowBar}
       </div>
       <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+        <LspStatusPill filePath={activeFilePath ?? null} />
         <PetToggle />
         <ClaudeUsageButton />
         <ClaudeProviderButton leafId={activeLeafId ?? null} />

@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { pathIdentity } from "@/lib/pathIdentity";
 import { toast } from "sonner";
-import type { GitStatusSnapshot } from "@/lib/native";
+import type { GitStatusSnapshot, GitRepoHead } from "@/lib/native";
 import type { WorkspaceEnv } from "@/modules/workspace";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
@@ -87,6 +87,7 @@ type Props = {
   pathDropTarget?: TerminalPathDropTarget;
   /** One snapshot per repo; each file is decorated by its containing repo. */
   gitStatuses?: GitStatusSnapshot[] | null;
+  gitRepos?: readonly GitRepoHead[];
 };
 
 type Row =
@@ -175,6 +176,7 @@ function buildRows(
   lookup: (path: string) => GitStatusCode | null,
   hideGitIgnored: boolean,
   compactFolders: boolean,
+  branchAt: (path: string) => string | null,
 ): { rows: Row[]; entryIndexByPath: Map<string, number> } {
   const rows: Row[] = [];
   const entryIndexByPath = new Map<string, number>();
@@ -194,6 +196,7 @@ function buildRows(
       const collapsePath = path;
       if (compactFolders && isDir && tree.expanded.has(path)) {
         for (;;) {
+          if (branchAt(path)) break;
           const only = soleChildDir(tree, path);
           if (!only || !tree.expanded.has(only.path)) break;
           name = `${name}/${only.name}`;
@@ -288,6 +291,7 @@ export const FileExplorer = memo(
       onAttachToAgent,
       pathDropTarget,
       gitStatuses,
+      gitRepos,
     },
     ref,
   ) {
@@ -296,10 +300,11 @@ export const FileExplorer = memo(
     const hideGitIgnored = usePreferencesStore((s) => s.hideGitIgnored);
     const showHidden = usePreferencesStore((s) => s.showHidden);
     const compactFolders = usePreferencesStore((s) => s.compactFolders);
-    const { lookup: lookupGitStatus } = useGitStatus(
+    const { lookup: lookupGitStatus, branchAt } = useGitStatus(
       rootPath,
       gitDecorations ? gitStatuses : null,
       gitDecorations,
+      gitRepos,
     );
     const [selectedPath, setSelectedPath] = useState<string | null>(null);
     const [viewState, setViewState] = useState<{
@@ -335,6 +340,7 @@ export const FileExplorer = memo(
         lookupGitStatus,
         hideGitIgnored,
         compactFolders,
+        branchAt,
       );
     }, [
       rootPath,
@@ -346,6 +352,7 @@ export const FileExplorer = memo(
       lookupGitStatus,
       hideGitIgnored,
       compactFolders,
+      branchAt,
     ]);
 
     const rowActions = useMemo<RowActions>(
@@ -654,6 +661,7 @@ export const FileExplorer = memo(
               onOpenFile={onOpenFile}
               onSelectPath={setSelectedPath}
               gitStatusCode={row.gitStatusCode}
+              gitBranch={row.isDir ? branchAt(row.path) : null}
               gitignored={gitDecorations && row.gitignored}
               openState={row.isDir ? null : openStateFor(row.path)}
             />
@@ -679,6 +687,7 @@ export const FileExplorer = memo(
       }
     };
 
+    const rootBranch = branchAt(rootPath, true);
     return (
       <ExplorerTabs.Root
         value={view}
@@ -700,7 +709,7 @@ export const FileExplorer = memo(
             <ExplorerTabs.Trigger
               value="files"
               className="flex min-w-0 flex-1 items-center rounded-md px-1.5 py-0.5 text-[10.5px] text-muted-foreground outline-none hover:bg-foreground/[0.04] hover:text-foreground data-[state=active]:bg-foreground/[0.08] data-[state=active]:font-medium data-[state=active]:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-              title={rootPath}
+              title={rootBranch ? `${rootPath}（${rootBranch}）` : rootPath}
             >
               <img
                 src={folderIconUrl(basename(rootPath), false)}
@@ -709,7 +718,14 @@ export const FileExplorer = memo(
                 width={15}
                 className="mr-1.5 shrink-0"
               />
-              <span className="truncate">{basename(rootPath)}</span>
+              <span className="truncate">
+                {basename(rootPath)}
+                {rootBranch ? (
+                  <span className="text-muted-foreground">
+                    （{rootBranch}）
+                  </span>
+                ) : null}
+              </span>
             </ExplorerTabs.Trigger>
             <ExplorerTabs.Trigger
               value="search"

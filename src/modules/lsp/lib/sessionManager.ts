@@ -4,6 +4,7 @@ import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
+import { pathIdentity } from "@/lib/pathIdentity";
 import type { AweiWorkLspClient } from "./client";
 import { detectBinary } from "./detect";
 import { getLspNavigator } from "./navigator";
@@ -15,7 +16,6 @@ import { fileUriToPath, pathToFileUri } from "./uri";
 const IDLE_SHUTDOWN_MS = 3 * 60 * 1000;
 const CRASH_WINDOW_MS = 5 * 60 * 1000;
 const MAX_CRASHES = 3;
-const SHUTDOWN_TIMEOUT_MS = 2000;
 const MAX_SESSIONS_PER_PRESET = 4;
 const CRASH_COOLDOWN_MS = [2_000, 10_000, 30_000];
 const EVICTION_MIN_AGE_MS = 10_000;
@@ -38,7 +38,6 @@ export type LspDocHandle = {
 };
 
 const sessions = new Map<string, Managed>();
-const closingSessions = new Set<Managed>();
 const creating = new Map<string, Promise<Managed | null>>();
 const presetEpochs = new Map<string, number>();
 const crashTimes = new Map<string, number[]>();
@@ -74,10 +73,11 @@ function recordCrash(key: string): void {
   crashTimes.set(key, times);
 }
 
-export async function acquireDocExtension(
+async function acquireManaged(
   path: string,
   langId: string,
-): Promise<LspDocHandle | null> {
+  warm = false,
+): Promise<{ managed: Managed; preset: LspPreset; epoch: number } | null> {
   if (currentWorkspaceEnv().kind !== "local") return null;
   const prefs = usePreferencesStore.getState();
   const preset = serverForLanguage(
@@ -97,59 +97,69 @@ export async function acquireDocExtension(
   const root = await invoke<string | null>("lsp_resolve_root", {
     path,
     markers,
+    language: langId,
   }).catch(() => null);
   if (!root) return null;
+  if (warm && (await invoke<boolean>("lsp_java_cached", { root }))) return null;
   if (!canAcquire(preset.id, epoch)) return null;
-  const key = `${preset.id}\u0000${root}`;
+  const key = `${preset.id}\u0000${pathIdentity(root)}`;
   if (crashedOut(key)) return null;
-  if (
-    !sessions.has(key) &&
-    [...sessions.values()].filter((m) => m.preset.id === preset.id).length >=
-      MAX_SESSIONS_PER_PRESET
-  ) {
-    console.warn(
-      `[lsp] session cap reached for ${preset.id}, skipping ${root}`,
-    );
-    return null;
-  }
-
   // Evict idle sessions of other roots; the age guard keeps simultaneous
   // multi-root opens from evicting each other's newborn sessions.
   if (!sessions.has(key)) {
     const now = Date.now();
+    const evictions: Promise<void>[] = [];
     for (const m of sessions.values()) {
       if (
         m.preset.id === preset.id &&
         m.refs.size === 0 &&
+        m.client.javaStatus !== "indexing" &&
         !m.closing &&
         now - m.bornAt > EVICTION_MIN_AGE_MS
       ) {
-        void closeSession(m);
+        evictions.push(closeSession(m));
       }
     }
+    await Promise.all(evictions);
+    if (!canAcquire(preset.id, epoch)) return null;
   }
 
   const managed =
     sessions.get(key) ?? (await getOrCreateSession(key, preset, root, epoch));
-  if (!managed) return null;
+  if (!managed || managed.closing) {
+    if (warm && canAcquire(preset.id, epoch)) deferredWarmProjects.add(path);
+    return null;
+  }
+  return { managed, preset, epoch };
+}
 
+export async function acquireDocExtension(
+  path: string,
+  langId: string,
+): Promise<LspDocHandle | null> {
+  const acquired = await acquireManaged(path, langId);
+  if (!acquired) return null;
+  const { managed, preset, epoch } = acquired;
   const uri = pathToFileUri(path);
   const languageId = preset.languages[langId] ?? langId;
   const mod = await import("./client");
   if (
     !canAcquire(preset.id, epoch) ||
     managed.closing ||
-    sessions.get(key) !== managed
+    sessions.get(managed.key) !== managed
   )
     return null;
   const extension: Extension = [
     mod.lspInteractions({
       client: managed.client,
       documentUri: uri,
+      languageId,
       rootPath: managed.root.replace(/\\/g, "/"),
-      onExternal: (extUri, line) => {
+      onExternal: (extUri, line, character, origin) => {
         const target = fileUriToPath(extUri);
-        if (target) getLspNavigator()?.openFile(target, line);
+        if (target)
+          getLspNavigator()?.openFile(target, line, character, origin);
+        else toast.info("该目标是语言服务的虚拟源码，暂不能作为本地文件打开");
       },
     }),
     mod.languageServerWithTransport({
@@ -178,6 +188,43 @@ export async function acquireDocExtension(
   };
 }
 
+export async function warmJavaProject(path: string): Promise<void> {
+  const existing = warmRequests.get(pathIdentity(path));
+  if (existing) return existing;
+  const operation = warmTail.then(() => prepareJavaProject(path));
+  warmRequests.set(pathIdentity(path), operation);
+  warmTail = operation.catch(() => {});
+  try {
+    await operation;
+  } finally {
+    warmRequests.delete(pathIdentity(path));
+  }
+}
+
+const warmRequests = new Map<string, Promise<void>>();
+const deferredWarmProjects = new Set<string>();
+let warmTail = Promise.resolve();
+
+async function prepareJavaProject(path: string): Promise<void> {
+  const prefs = usePreferencesStore.getState();
+  const preset = serverForLanguage(
+    "java",
+    prefs.lspCustomServers,
+    prefs.lspActivation,
+  );
+  if (preset?.id !== "jdtls" || prefs.lspActivation.jdtls !== "enabled") return;
+  const acquired = await acquireManaged(path, "java", true);
+  if (acquired) {
+    try {
+      await acquired.managed.client.waitUntilReady(
+        new AbortController().signal,
+      );
+    } finally {
+      scheduleIdle(acquired.managed);
+    }
+  }
+}
+
 function getOrCreateSession(
   key: string,
   preset: LspPreset,
@@ -189,9 +236,7 @@ function getOrCreateSession(
   if (!inflight) {
     if (!canAcquire(preset.id, epoch)) return Promise.resolve(null);
     const count =
-      [...sessions.values(), ...closingSessions].filter(
-        (m) => m.preset.id === preset.id,
-      ).length +
+      [...sessions.values()].filter((m) => m.preset.id === preset.id).length +
       [...creating.keys()].filter((k) => k.startsWith(`${preset.id}\u0000`))
         .length;
     if (count >= MAX_SESSIONS_PER_PRESET) return Promise.resolve(null);
@@ -240,12 +285,35 @@ async function createSession(
     return null;
   }
   try {
+    let args = preset.args;
+    let cacheGeneration: number | undefined;
+    if (preset.id === "jdtls") {
+      const launch = await invoke<{
+        args: string[];
+        warning: string | null;
+        cacheGeneration: number;
+      }>("lsp_java_launch", { root, args });
+      args = launch.args;
+      cacheGeneration = launch.cacheGeneration;
+      if (!canAcquire(preset.id, epoch)) {
+        removeStarting();
+        return null;
+      }
+      if (launch.warning) toast.warning(launch.warning);
+    }
     await transport.start({
       command: preset.command,
-      args: preset.args,
+      args,
       root,
       env: preset.env,
       maxMemoryMb: preset.maxMemoryMb,
+      cacheGeneration,
+      configuration:
+        typeof preset.initializationOptions === "object" &&
+        preset.initializationOptions !== null &&
+        "settings" in preset.initializationOptions
+          ? preset.initializationOptions.settings
+          : undefined,
     });
   } catch (e) {
     transport.close();
@@ -290,6 +358,19 @@ async function createSession(
     bornAt: Date.now(),
   };
   sessions.set(key, managed);
+  if (preset.id === "jdtls") {
+    client.watchNavigationChanges(root);
+    client.enableJavaStatus((status) => {
+      if (sessions.get(key) !== managed || managed.closing) return;
+      useLspRuntimeStore.getState().upsertSession({
+        key,
+        presetId: preset.id,
+        root,
+        status: status === "ready" ? "running" : status,
+      });
+      if (status !== "indexing") scheduleIdle(managed);
+    });
+  }
   // Exit can beat the map insert when the binary dies instantly (e.g. a
   // rustup proxy for an uninstalled component); reap it here.
   if (transport.exitInfo) {
@@ -310,7 +391,12 @@ async function createSession(
         key,
         presetId: preset.id,
         root,
-        status: "running",
+        status:
+          preset.id === "jdtls" && client.javaStatus !== "ready"
+            ? client.javaStatus === "error"
+              ? "error"
+              : "indexing"
+            : "running",
       });
     }
   });
@@ -328,6 +414,12 @@ function handleServerExit(key: string, transport: TauriLspTransport): void {
   managed.client.close();
   useLspRuntimeStore.getState().removeSessionQuiet(key);
   const info = managed.transport.exitInfo;
+  if (info?.reason === "cache-deleted" || info?.reason === "app-closing") {
+    crashTimes.delete(key);
+    if (info.reason === "cache-deleted")
+      toast.info("Java 索引缓存已删除，重新打开 Java 文件后重建");
+    return;
+  }
   // Budget kills don't respawn: reloading would repay the startup peak
   // that got the server killed. Restart from the pill is explicit.
   if (info?.reason) {
@@ -387,7 +479,16 @@ function releaseRef(managed: Managed, uri: string): void {
   }
   managed.refs.delete(uri);
   if (!managed.closing) managed.client.textDocumentDidClose(uri);
-  if (managed.refs.size === 0 && !managed.closing) {
+  scheduleIdle(managed);
+}
+
+function scheduleIdle(managed: Managed): void {
+  if (
+    managed.refs.size === 0 &&
+    !managed.closing &&
+    managed.client.javaStatus !== "indexing"
+  ) {
+    if (managed.idleTimer) clearTimeout(managed.idleTimer);
     managed.idleTimer = setTimeout(() => {
       void closeSession(managed);
     }, IDLE_SHUTDOWN_MS);
@@ -397,20 +498,28 @@ function releaseRef(managed: Managed, uri: string): void {
 async function closeSession(managed: Managed): Promise<void> {
   if (managed.closing) return;
   managed.closing = true;
+  managed.client.releaseNavigationCache();
   if (managed.idleTimer) {
     clearTimeout(managed.idleTimer);
     managed.idleTimer = null;
   }
-  sessions.delete(managed.key);
-  closingSessions.add(managed);
   useLspRuntimeStore.getState().removeSession(managed.key, managed.preset.id);
   try {
-    await managed.client.shutdownGracefully(SHUTDOWN_TIMEOUT_MS);
+    await managed.transport.shutdown();
   } catch (error) {
     console.warn(`[lsp:${managed.preset.id}] shutdown failed`, error);
   } finally {
     managed.transport.close();
-    closingSessions.delete(managed);
+    managed.client.close();
+    if (sessions.get(managed.key) === managed) sessions.delete(managed.key);
+    if (deferredWarmProjects.size) {
+      const pending = [...deferredWarmProjects];
+      deferredWarmProjects.clear();
+      for (const path of pending)
+        void warmJavaProject(path).catch((error) =>
+          console.warn("[lsp:java] deferred index failed", error),
+        );
+    }
     if (
       usePreferencesStore.getState().lspActivation[managed.preset.id] ===
       "enabled"
@@ -428,8 +537,14 @@ export function notifyDocumentSaved(path: string): void {
   }
 }
 
+export function notifyNavigationSourceChanged(path: string): void {
+  for (const managed of sessions.values())
+    if (!managed.closing) managed.client.invalidateNavigationForPath(path);
+}
+
 export async function stopPresetSessions(presetId: string): Promise<void> {
   presetEpochs.set(presetId, currentEpoch(presetId) + 1);
+  if (presetId === "jdtls") deferredWarmProjects.clear();
   const targets = [...sessions.values()].filter(
     (m) => m.preset.id === presetId,
   );

@@ -1,7 +1,7 @@
 pub mod modules;
 
 use modules::{
-    fs, gateway, git, history, lsp, pet, pty, schedule, sessions, shell, usage, web, workspace,
+    fs, gateway, git, history, lsp, pet, pty, schedule, sessions, shell, ssh, usage, web, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -223,6 +223,8 @@ fn close_settings_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Every HTTPS client needs this, including Java startup before an update check.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let (launch, launch_command) = parse_launch_target();
     let cli_dir = launch.dir.clone();
     workspace::init_launch_cwd(cli_dir.as_deref());
@@ -264,6 +266,8 @@ pub fn run() {
         .manage(fs::search::FileSearchState::default())
         .manage(schedule::ScheduleState::default())
         .manage(pet::PetWindowState::default())
+        .manage(ssh::SshState::default())
+        .manage(ssh::entries::EntryState::default())
         .manage({
             let registry = workspace::WorkspaceRegistry::default();
             workspace::bootstrap_registry(&registry);
@@ -276,6 +280,18 @@ pub fn run() {
         .manage(LaunchFiles(Mutex::new(launch.files)))
         .manage(LaunchCommand(Mutex::new(launch_command)))
         .invoke_handler(tauri::generate_handler![
+            ssh::ssh_connect,
+            ssh::ssh_disconnect,
+            ssh::ssh_disconnect_all,
+            ssh::ssh_terminal_open,
+            ssh::ssh_terminal_write,
+            ssh::ssh_terminal_resize,
+            ssh::ssh_credential_read,
+            ssh::ssh_credential_save,
+            ssh::files::ssh_list_dir,
+            ssh::files::ssh_mkdir,
+            ssh::transfer::ssh_transfer,
+            ssh::transfer::ssh_transfer_cancel,
             pty::pty_open,
             pty::pty_agent_session,
             sessions::agent_resume_command,
@@ -335,6 +351,19 @@ pub fn run() {
             lsp::lsp_detect,
             lsp::lsp_host_pid,
             lsp::lsp_resolve_root,
+            lsp::lsp_mapper_files,
+            lsp::lsp_java_launch,
+            lsp::lsp_java_cached,
+            lsp::lsp_java_caches,
+            lsp::lsp_java_cache_delete,
+            lsp::lsp_shutdown,
+            lsp::lsp_shutdown_all,
+            ssh::entries::ssh_open_special,
+            ssh::entries::ssh_cancel_special,
+            ssh::entries::code::ssh_code_read,
+            ssh::entries::code::ssh_code_write,
+            ssh::entries::code::ssh_code_migrate,
+            ssh::entries::code::ssh_code_status,
             lsp::lsp_spawn,
             lsp::lsp_send,
             lsp::lsp_kill,
@@ -441,6 +470,9 @@ pub fn run() {
                         state.kill_all();
                     }
                     web::stop();
+                    if let Some(state) = app.try_state::<ssh::entries::EntryState>() {
+                        state.stop();
+                    }
                     gateway::stop();
                 }
                 _ => {}

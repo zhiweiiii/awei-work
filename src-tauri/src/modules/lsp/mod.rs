@@ -1,11 +1,15 @@
 mod env;
 mod framing;
+mod java;
+mod java_cache;
+mod mapper;
+mod root;
 mod rss;
 mod session;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use tauri::ipc::{Channel, Response};
 
@@ -15,6 +19,8 @@ use session::LspSession;
 pub struct LspState {
     sessions: RwLock<HashMap<u32, Arc<LspSession>>>,
     next_id: AtomicU32,
+    maintenance: Mutex<()>,
+    cache_generation: AtomicU32,
 }
 
 impl Default for LspState {
@@ -22,6 +28,8 @@ impl Default for LspState {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_id: AtomicU32::new(1),
+            maintenance: Mutex::new(()),
+            cache_generation: AtomicU32::new(0),
         }
     }
 }
@@ -71,6 +79,7 @@ pub async fn lsp_spawn(
     env: Option<HashMap<String, String>>,
     root: String,
     max_rss_mb: Option<u64>,
+    cache_generation: Option<u32>,
     workspace: Option<WorkspaceEnv>,
     on_message: Channel<Response>,
     on_exit: Channel<session::LspExit>,
@@ -82,17 +91,35 @@ pub async fn lsp_spawn(
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let spawn_log = format!("cmd={command} root={}", root.display());
     let session = tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<LspState>();
+        let _maintenance = state.maintenance.lock().unwrap();
+        if cache_generation
+            .is_some_and(|generation| generation != state.cache_generation.load(Ordering::Acquire))
+        {
+            return Err("Java 索引缓存已变更，请重新打开项目".into());
+        }
         let binary = env::resolve_binary(&command)
             .ok_or_else(|| format!("lsp: binary not found: {command}"))?;
         let extra_env = env.unwrap_or_default();
-        session::spawn(
-            id, app, &binary, &args, &extra_env, &root, max_rss_mb, on_message, on_exit,
-        )
+        let session = session::spawn(
+            id,
+            app.clone(),
+            &binary,
+            &args,
+            &extra_env,
+            &root,
+            max_rss_mb,
+            on_message,
+            on_exit,
+        )?;
+        state.sessions.write().unwrap().insert(id, session.clone());
+        Ok::<_, String>(session)
     })
     .await
     .map_err(|e| e.to_string())??;
 
-    state.sessions.write().unwrap().insert(id, session);
+    drop(session);
     // The server can die before this insert; the waiter's reap then ran with
     // the id absent. Re-check so a dead session isn't stranded in the map.
     let exited = state
@@ -110,32 +137,172 @@ pub async fn lsp_spawn(
 }
 
 #[tauri::command]
-pub async fn lsp_resolve_root(path: String, markers: Vec<String>) -> Option<String> {
-    tauri::async_runtime::spawn_blocking(move || resolve_root(&path, &markers))
-        .await
-        .ok()
-        .flatten()
+pub async fn lsp_java_launch(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LspState>,
+    registry: tauri::State<'_, WorkspaceRegistry>,
+    root: String,
+    args: Vec<String>,
+) -> Result<java::JavaLaunch, String> {
+    use tauri::Manager;
+    let root = authorize_spawn_cwd(&registry, Some(&root), &WorkspaceEnv::Local)?
+        .ok_or("lsp: workspace root is required")?;
+    let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let generation = state.cache_generation.load(Ordering::Acquire);
+    let mut launch = java::prepare(cache, root, args).await?;
+    launch.cache_generation = generation;
+    Ok(launch)
 }
 
-// Stops below the home directory: a stray ~/package.json must not make a
-// server index the entire home dir.
-fn resolve_root(path: &str, markers: &[String]) -> Option<String> {
-    let home = dirs::home_dir();
-    let start = std::path::PathBuf::from(path);
-    let mut dir = if start.is_dir() {
-        start.as_path()
-    } else {
-        start.parent()?
-    };
-    loop {
-        if home.as_deref() == Some(dir) {
-            return None;
+#[tauri::command]
+pub async fn lsp_java_cached(app: tauri::AppHandle, root: String) -> Result<bool, String> {
+    use tauri::Manager;
+    let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let registry = app.state::<WorkspaceRegistry>();
+        let root = authorize_spawn_cwd(&registry, Some(&root), &WorkspaceEnv::Local)?
+            .ok_or("Java project root is required")?;
+        Ok(java_cache::is_cached(&cache, &root))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn lsp_java_caches(app: tauri::AppHandle) -> Result<Vec<java_cache::CacheEntry>, String> {
+    use tauri::Manager;
+    let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<LspState>();
+        let _maintenance = state.maintenance.lock().unwrap();
+        let mut entries = java_cache::list(&cache)?;
+        for entry in &mut entries {
+            entry.active = state.sessions.read().unwrap().values().any(|session| {
+                let path = if entry.id == "shared" {
+                    &session.shared_index
+                } else {
+                    &session.java_cache
+                };
+                path.as_ref().is_some_and(|path| {
+                    crate::modules::fs::to_canon(path).eq_ignore_ascii_case(&entry.path)
+                })
+            });
         }
-        if markers.iter().any(|m| dir.join(m).exists()) {
-            return Some(dir.to_string_lossy().into_owned());
+        Ok(entries)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn lsp_java_cache_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri::Manager;
+    let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<LspState>();
+        let _maintenance = state.maintenance.lock().unwrap();
+        let directory = java_cache::directory(&cache, &id)?;
+        let identity = crate::modules::fs::to_canon(&directory);
+        state.cache_generation.fetch_add(1, Ordering::AcqRel);
+        let affected: Vec<_> = state
+            .sessions
+            .read()
+            .unwrap()
+            .values()
+            .filter(|session| {
+                let path = if id == "shared" {
+                    &session.shared_index
+                } else {
+                    &session.java_cache
+                };
+                path.as_ref().is_some_and(|path| {
+                    crate::modules::fs::to_canon(path).eq_ignore_ascii_case(&identity)
+                })
+            })
+            .cloned()
+            .collect();
+        std::thread::scope(|scope| {
+            for session in affected {
+                scope.spawn(move || session.shutdown(Some("cache-deleted")));
+            }
+        });
+        java_cache::delete(&cache, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn lsp_shutdown(app: tauri::AppHandle, id: u32) -> Result<(), String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<LspState>();
+        let _maintenance = state.maintenance.lock().unwrap();
+        if let Some(session) = state.take(id) {
+            session.shutdown(None);
         }
-        dir = dir.parent()?;
-    }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn lsp_shutdown_all(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<LspState>();
+        let _maintenance = state.maintenance.lock().unwrap();
+        state.cache_generation.fetch_add(1, Ordering::AcqRel);
+        let sessions: Vec<_> = state.sessions.read().unwrap().values().cloned().collect();
+        std::thread::scope(|scope| {
+            for session in sessions {
+                scope.spawn(move || session.shutdown(Some("app-closing")));
+            }
+        });
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn lsp_resolve_root(
+    app: tauri::AppHandle,
+    path: String,
+    markers: Vec<String>,
+    language: Option<String>,
+) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let registry = app.state::<WorkspaceRegistry>();
+        let candidate = root::resolve(&path, &markers, language.as_deref() == Some("java"))?;
+        if authorize_spawn_cwd(&registry, Some(&candidate), &WorkspaceEnv::Local).is_ok() {
+            return Some(candidate);
+        }
+        let fallback = root::resolve(&path, &markers, false)?;
+        authorize_spawn_cwd(&registry, Some(&fallback), &WorkspaceEnv::Local).ok()?;
+        Some(fallback)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+#[tauri::command]
+pub async fn lsp_mapper_files(
+    app: tauri::AppHandle,
+    root: String,
+    namespace: String,
+    kind: String,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let registry = app.state::<WorkspaceRegistry>();
+        let root = authorize_spawn_cwd(&registry, Some(&root), &WorkspaceEnv::Local)?
+            .ok_or("Mapper workspace root is required")?;
+        mapper::files(&root, &namespace, &kind)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 // Async so a stalled server with a full stdin pipe blocks a worker

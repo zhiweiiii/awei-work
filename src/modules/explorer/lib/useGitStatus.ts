@@ -1,4 +1,5 @@
-import { native, type GitStatusSnapshot } from "@/lib/native";
+import { native, type GitStatusSnapshot, type GitRepoHead } from "@/lib/native";
+import { pathIdentity } from "@/lib/pathIdentity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   currentWorkspaceScopeKey,
@@ -26,7 +27,9 @@ export function useGitStatus(
   workspaceRoot: string | null,
   statuses: GitStatusSnapshot[] | null | undefined,
   enabled: boolean,
+  heads?: readonly GitRepoHead[],
 ) {
+  const hasHeads = !!heads?.length;
   const scopeKey = workspaceScopeKey(LOCAL_WORKSPACE);
   const [canonical, setCanonical] = useState<{
     root: string;
@@ -42,7 +45,7 @@ export function useGitStatus(
   useEffect(() => {
     const req = ++reqRef.current;
     let alive = true;
-    if (!enabled || !workspaceRoot) {
+    if ((!enabled && !hasHeads) || !workspaceRoot) {
       setCanonical(null);
       return;
     }
@@ -67,7 +70,7 @@ export function useGitStatus(
     return () => {
       alive = false;
     };
-  }, [enabled, workspaceRoot, scopeKey]);
+  }, [enabled, hasHeads, workspaceRoot, scopeKey]);
 
   const aliases = useMemo(() => {
     const out: string[] = [];
@@ -122,5 +125,41 @@ export function useGitStatus(
     [repos, workspaceRoot, canonicalRoot],
   );
 
-  return { lookup };
+  const branches = useMemo(
+    () =>
+      new Map(
+        (heads ?? []).map((head) => [
+          pathIdentity(head.repoRoot),
+          head.isDetached ? "分离 HEAD" : head.branch || "HEAD",
+        ]),
+      ),
+    [heads],
+  );
+  const branchAt = useCallback(
+    (path: string, includeParent = false): string | null => {
+      if (!workspaceRoot || !branches.size) return null;
+      const logical = pathIdentity(workspaceRoot);
+      const requested = pathIdentity(path);
+      const actual =
+        canonicalRoot &&
+        (requested === logical || requested.startsWith(`${logical}/`))
+          ? `${pathIdentity(canonicalRoot)}${requested.slice(logical.length)}`
+          : requested;
+      const exact = branches.get(actual);
+      if (exact) return exact;
+      if (!includeParent) return null;
+      let length = 0;
+      let label: string | null = null;
+      for (const [root, branch] of branches) {
+        if (root.length > length && actual.startsWith(`${root}/`)) {
+          length = root.length;
+          label = branch;
+        }
+      }
+      return label;
+    },
+    [workspaceRoot, canonicalRoot, branches],
+  );
+
+  return { lookup, branchAt };
 }

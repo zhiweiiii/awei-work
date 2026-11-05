@@ -1528,6 +1528,7 @@ function ScopedSourceControlPanel({
                             onToggleAll={scm.toggleAll}
                             onSelectFile={scm.selectFile}
                             onToggleStageFile={scm.toggleStageFile}
+                            onToggleStageFolder={scm.toggleStageFolder}
                             onDiscardFile={scm.requestDiscardFile}
                             onOpenFile={onOpenFile}
                             onToggleGroup={toggleCollapsedGroup}
@@ -1768,6 +1769,7 @@ type RowRendererProps = {
   onToggleAll: () => Promise<void> | void;
   onSelectFile: (entry: SourceControlFileEntry) => Promise<void>;
   onToggleStageFile: (entry: SourceControlFileEntry) => Promise<void>;
+  onToggleStageFolder: (repoRoot: string, path: string) => Promise<void>;
   onDiscardFile: (entry: SourceControlFileEntry) => void;
   onOpenFile?: (absolutePath: string) => void;
   onToggleGroup: (key: string) => void;
@@ -1783,7 +1785,14 @@ const RowRenderer = memo(function RowRenderer(props: RowRendererProps) {
     case "repo-header":
       return <RepoHeader row={row} onToggle={props.onToggleGroup} />;
     case "folder-header":
-      return <FolderHeader row={row} onToggle={props.onToggleGroup} />;
+      return (
+        <FolderHeader
+          row={row}
+          onToggle={props.onToggleGroup}
+          busy={props.actionBusy !== null}
+          onToggleStage={props.onToggleStageFolder}
+        />
+      );
     case "entry":
       return <EntryRow {...props} row={row} />;
   }
@@ -1847,38 +1856,53 @@ function RepoHeader({
 function FolderHeader({
   row,
   onToggle,
+  busy,
+  onToggleStage,
 }: {
   row: Extract<RowDescriptor, { kind: "folder-header" }>;
   onToggle: (key: string) => void;
+  busy: boolean;
+  onToggleStage: (repoRoot: string, path: string) => Promise<void>;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onToggle(row.key)}
-      aria-expanded={!row.collapsed}
-      title={row.path || "(root)"}
+    <div
+      className="flex h-6 w-full items-center gap-2 pr-3 hover:bg-foreground/[0.03]"
       style={{ paddingLeft: 12 + row.depth * 16 }}
-      className="flex h-6 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-foreground/[0.03]"
     >
-      <HugeiconsIcon
-        icon={row.collapsed ? ChevronRightIcon : ChevronDownIcon}
-        size={10}
-        strokeWidth={2}
-        className="shrink-0 text-muted-foreground/50"
+      <button
+        type="button"
+        onClick={() => onToggle(row.key)}
+        aria-expanded={!row.collapsed}
+        title={row.path}
+        className="flex h-6 min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+      >
+        <HugeiconsIcon
+          icon={row.collapsed ? ChevronRightIcon : ChevronDownIcon}
+          size={10}
+          strokeWidth={2}
+          className="shrink-0 text-muted-foreground/50"
+        />
+        <HugeiconsIcon
+          icon={Folder01Icon}
+          size={11}
+          strokeWidth={2}
+          className="shrink-0 text-muted-foreground/70"
+        />
+        <span className="truncate text-[10.5px] font-medium text-muted-foreground/80">
+          {row.label}
+        </span>
+        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/50 px-1 text-[9px] tabular-nums text-muted-foreground/60">
+          {row.count}
+        </span>
+      </button>
+      <Checkbox
+        aria-label={`${row.checkState === "checked" ? "取消暂存" : "暂存"}文件夹 ${row.path}`}
+        checked={checkboxValue(row.checkState)}
+        disabled={busy}
+        onCheckedChange={() => void onToggleStage(row.repoRoot, row.path)}
+        className="size-3.5 shrink-0"
       />
-      <HugeiconsIcon
-        icon={Folder01Icon}
-        size={11}
-        strokeWidth={2}
-        className="shrink-0 text-muted-foreground/70"
-      />
-      <span className="truncate text-[10.5px] font-medium text-muted-foreground/80">
-        {row.label}
-      </span>
-      <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/50 px-1 text-[9px] tabular-nums text-muted-foreground/60">
-        {row.count}
-      </span>
-    </button>
+    </div>
   );
 }
 

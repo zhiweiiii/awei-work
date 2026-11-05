@@ -99,7 +99,8 @@ export function LspStatusPill({ filePath }: Props) {
     <ActivePill
       key={`active-${hint.preset.id}`}
       preset={hint.preset}
-      starting={hint.status === "starting"}
+      starting={hint.status === "starting" || hint.status === "indexing"}
+      indexing={hint.status === "indexing"}
     />
   );
 }
@@ -272,9 +273,11 @@ function InstallPill({ preset }: { preset: LspPreset }) {
 function ActivePill({
   preset,
   starting,
+  indexing,
 }: {
   preset: LspPreset;
   starting: boolean;
+  indexing: boolean;
 }) {
   const { busy, run } = useLspAction();
   return (
@@ -284,7 +287,11 @@ function ActivePill({
           type="button"
           className={PILL_CLASS}
           title={
-            starting ? "Language server starting" : "Language server active"
+            indexing
+              ? "项目正在初始化索引"
+              : starting
+                ? "Language server starting"
+                : "Language server active"
           }
         >
           {starting ? (
@@ -297,7 +304,9 @@ function ActivePill({
           ) : (
             <span className="size-1.5 rounded-full bg-emerald-500" />
           )}
-          <span>{preset.name} LSP</span>
+          <span>
+            {preset.name} {indexing ? "索引中" : "LSP"}
+          </span>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -310,7 +319,12 @@ function ActivePill({
         </div>
         <p className="mb-2 text-muted-foreground">
           <code className="text-foreground">{preset.command}</code>{" "}
-          {starting ? "is starting" : "is running"} for this workspace.
+          {indexing
+            ? "正在初始化项目索引"
+            : starting
+              ? "is starting"
+              : "is running"}{" "}
+          for this workspace.
         </p>
         <div className="flex items-center gap-1.5">
           <button

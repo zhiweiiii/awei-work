@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import {
   type RefObject,
   useCallback,
@@ -52,6 +53,8 @@ export function useAppCloseGuard(
             return;
           }
         }
+        if (disposedRef.current) return;
+        await invoke("lsp_shutdown_all");
         if (disposedRef.current) return;
         forceClose.current = true;
         await getCurrentWindow().close();

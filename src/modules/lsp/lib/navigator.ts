@@ -1,5 +1,13 @@
+import type { EditorLocation } from "@/modules/editor/lib/navigationHistory";
+
 export type LspNavigator = {
-  openFile: (path: string, line: number) => void;
+  openFile: (
+    path: string,
+    line: number,
+    character?: number,
+    origin?: EditorLocation,
+  ) => void;
+  getDocument?: (path: string) => string | null;
 };
 
 let current: LspNavigator | null = null;

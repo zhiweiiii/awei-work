@@ -19,6 +19,7 @@ import {
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { folderStagePlan } from "@/modules/source-control/lib/folderStage";
 import type { PushPlan } from "./useMultiRepoSourceControl";
 import { type RepoStatusEntry, repoDisplayName } from "./useRepoStatuses";
 import type { SourceControlSummary } from "./useSourceControl";
@@ -134,6 +135,7 @@ type SourceControlPanelState = {
   stageEntry: (entry: SourceControlEntry) => Promise<void>;
   unstageEntry: (entry: SourceControlEntry) => Promise<void>;
   toggleStageFile: (entry: SourceControlFileEntry) => Promise<void>;
+  toggleStageFolder: (repoRoot: string, path: string) => Promise<void>;
   toggleAll: () => Promise<void>;
   requestDiscardEntry: (entry: SourceControlEntry) => void;
   requestDiscardFile: (entry: SourceControlFileEntry) => void;
@@ -1029,6 +1031,31 @@ export function useSourceControlPanel(
     else await stageAllEntries();
   }, [headerCheckState, stageAllEntries, unstageAllEntries]);
 
+  const toggleStageFolder = useCallback(
+    async (repoRoot: string, path: string) => {
+      const root = repoRoot || repo?.repoRoot;
+      if (!root || !path) return;
+      const plan = folderStagePlan(fileEntries, root, path);
+      if (!plan) return;
+      const { unstage } = plan;
+      const paths = new Set(plan.paths);
+      await runMutation(
+        `${unstage ? "unstage" : "stage"}:folder:${root}:${path}`,
+        (status) =>
+          unstage
+            ? optimisticUnstage(status, paths)
+            : optimisticStage(status, paths),
+        () =>
+          unstage
+            ? native.gitUnstage(root, [...paths])
+            : native.gitStage(root, [...paths]),
+        [...paths],
+        root,
+      );
+    },
+    [fileEntries, repo, runMutation, native],
+  );
+
   const requestDiscardFile = useCallback(
     (entry: SourceControlFileEntry) => {
       if (!repo || summary.busyAction || actionBusyRef.current || !isCurrent())
@@ -1451,6 +1478,7 @@ export function useSourceControlPanel(
     stageEntry,
     unstageEntry,
     toggleStageFile,
+    toggleStageFolder,
     toggleAll,
     requestDiscardEntry,
     requestDiscardFile,

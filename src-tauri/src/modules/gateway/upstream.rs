@@ -29,14 +29,6 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 fn client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
-        // reqwest is compiled without a bundled crypto provider, because
-        // tauri-plugin-updater selects `rustls-no-provider`, and it panics
-        // outright when none is installed. The plugin installs one itself, but
-        // only when an update check runs, which may happen after the first
-        // request through here or never at all.
-        if rustls::crypto::CryptoProvider::get_default().is_none() {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-        }
         // The connector registers its resolver and timers with the reactor as
         // it is built, so construction has to happen inside the runtime even
         // though no request is sent yet.

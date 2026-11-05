@@ -52,6 +52,8 @@ import { type LanguageResult, resolveLanguage } from "./lib/languageResolver";
 import { FORCE_READ_LIMIT, useDocument } from "./lib/useDocument";
 import { useEditorThemeExt } from "./lib/useEditorThemeExt";
 import { initVimGlobals, vimHandlersExtension } from "./lib/vim";
+import type { EditorLocation } from "@/modules/editor/lib/navigationHistory";
+import { mapperNavigation } from "@/modules/lsp/lib/mapperNavigation";
 
 initVimGlobals();
 
@@ -67,12 +69,17 @@ export type EditorPaneHandle = {
   /** 1-based start/end line of the current selection, or null when empty. */
   getSelectionRange: () => { startLine: number; endLine: number } | null;
   getPath: () => string;
+  getLocation: () => EditorLocation | null;
+  getText: () => string | null;
   /** Re-read the file from disk. Skips silently if the buffer is dirty. */
   reload: () => boolean;
   /** Stat the file and reload only if its mtime moved. For periodic polling. */
   revalidate: () => void;
   /** Move the cursor to a 1-based line and center it, once content is ready. */
-  gotoLine: (line: number, options?: { focus?: boolean }) => void;
+  gotoLine: (
+    line: number,
+    options?: { focus?: boolean; character?: number },
+  ) => void;
   /** Apply CodeMirror's undo/redo commands. */
   undo: () => void;
   redo: () => void;
@@ -254,6 +261,7 @@ export const EditorPane = memo(
     const pendingLineRef = useRef<{
       path: string;
       line: number;
+      character?: number;
       focus: boolean;
     } | null>(null);
     const pendingFocusRef = useRef<string | null>(null);
@@ -282,32 +290,45 @@ export const EditorPane = memo(
       [],
     );
 
-    const applyPendingGoto = useCallback(() => {
-      const view = cmRef.current?.view;
-      const pending = pendingLineRef.current;
-      if (!view || pending == null || statusRef.current !== "ready") return;
-      if (pending.path !== path) {
+    const applyPendingGoto = useCallback(
+      (createdView?: EditorView) => {
+        const view = createdView ?? cmRef.current?.view;
+        const pending = pendingLineRef.current;
+        if (!view || pending == null || statusRef.current !== "ready") return;
+        if (pending.path !== path) {
+          pendingLineRef.current = null;
+          return;
+        }
+        const target = Math.max(
+          1,
+          Math.min(pending.line, view.state.doc.lines),
+        );
+        const targetLine = view.state.doc.line(target);
+        const character = Number.isSafeInteger(pending.character)
+          ? Math.max(0, pending.character ?? 0)
+          : 0;
+        const at = Math.min(targetLine.from + character, targetLine.to);
+        view.dispatch({
+          selection: { anchor: at },
+          effects: EditorView.scrollIntoView(at, { y: "center" }),
+        });
+        if (pending.focus) focusWhenRendered(view, pending.path);
         pendingLineRef.current = null;
-        return;
-      }
-      const target = Math.max(1, Math.min(pending.line, view.state.doc.lines));
-      const at = view.state.doc.line(target).from;
-      view.dispatch({
-        selection: { anchor: at },
-        effects: EditorView.scrollIntoView(at, { y: "center" }),
-      });
-      if (pending.focus) focusWhenRendered(view, pending.path);
-      pendingLineRef.current = null;
-    }, [focusWhenRendered, path]);
+      },
+      [focusWhenRendered, path],
+    );
 
-    const applyPendingFocus = useCallback(() => {
-      const view = cmRef.current?.view;
-      const pendingPath = pendingFocusRef.current;
-      if (!view || pendingPath === null || statusRef.current !== "ready")
-        return;
-      pendingFocusRef.current = null;
-      if (pendingPath === path) focusWhenRendered(view, pendingPath);
-    }, [focusWhenRendered, path]);
+    const applyPendingFocus = useCallback(
+      (createdView?: EditorView) => {
+        const view = createdView ?? cmRef.current?.view;
+        const pendingPath = pendingFocusRef.current;
+        if (!view || pendingPath === null || statusRef.current !== "ready")
+          return;
+        pendingFocusRef.current = null;
+        if (pendingPath === path) focusWhenRendered(view, pendingPath);
+      },
+      [focusWhenRendered, path],
+    );
 
     useEffect(() => {
       if (doc.status !== "ready") return;
@@ -335,6 +356,10 @@ export const EditorPane = memo(
         indentCompartment.of(DEFAULT_INDENT),
         languageCompartment.of([]),
         lspCompartment.of([]),
+        mapperNavigation(() => ({
+          path: pathRef.current,
+          workspace: workspaceRef.current,
+        })),
         diagnosticsReporter(() => pathRef.current),
         keymap.of([
           {
@@ -500,12 +525,24 @@ export const EditorPane = memo(
           };
         },
         getPath: () => path,
+        getText: () =>
+          statusRef.current === "ready"
+            ? (cmRef.current?.view?.state.doc.toString() ?? null)
+            : null,
+        getLocation: () => {
+          const view = cmRef.current?.view;
+          if (!view || statusRef.current !== "ready") return null;
+          const position = view.state.selection.main.head;
+          const line = view.state.doc.lineAt(position);
+          return { path, line: line.number, character: position - line.from };
+        },
         reload: () => reloadRef.current(),
         revalidate: () => void revalidateRef.current(),
         gotoLine: (line: number, options) => {
           pendingLineRef.current = {
             path,
             line,
+            character: options?.character,
             focus: options?.focus ?? true,
           };
           applyPendingGoto();
@@ -537,7 +574,6 @@ export const EditorPane = memo(
       );
     }
     if (doc.status === "binary" || doc.status === "toolarge") {
-
       const canForce =
         doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
       return (
@@ -590,6 +626,10 @@ export const EditorPane = memo(
         </button>
         <CodeMirror
           ref={cmRef}
+          onCreateEditor={(view) => {
+            applyPendingGoto(view);
+            applyPendingFocus(view);
+          }}
           value={doc.content}
           onChange={onChange}
           theme={themeExt}

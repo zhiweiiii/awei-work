@@ -1,4 +1,7 @@
-import { notifyDocumentSaved } from "@/modules/lsp";
+import {
+  notifyDocumentSaved,
+  notifyNavigationSourceChanged,
+} from "@/modules/lsp";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   type WorkspaceEnv,
@@ -383,6 +386,8 @@ export function useDocument({ path, workspace, onDirtyChange }: Options) {
 
   const onChange = useCallback(
     (next: string) => {
+      if (next !== bufferRef.current && /\.xml$/i.test(path))
+        notifyNavigationSourceChanged(path);
       bufferRef.current = next;
       const isDirty = next !== savedRef.current;
       readRevisionRef.current += 1;
@@ -397,7 +402,7 @@ export function useDocument({ path, workspace, onDirtyChange }: Options) {
         }, delay);
       }
     },
-    [clearAutoSaveTimer, saveNow, updateDirty],
+    [clearAutoSaveTimer, saveNow, updateDirty, path],
   );
 
   useEffect(() => {

@@ -9,6 +9,7 @@ pub mod pty;
 pub mod schedule;
 pub mod sessions;
 pub mod shell;
+pub mod ssh;
 pub mod transcript;
 pub mod usage;
 pub mod web;

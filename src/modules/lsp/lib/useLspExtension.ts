@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { serverForLanguage } from "./presets";
 import { useLspRuntimeStore } from "./runtimeStore";
 import { acquireDocExtension, type LspDocHandle } from "./sessionManager";
+import { startingNavigation } from "./startingNavigation";
 
 export function useLspExtension(
   path: string,
@@ -29,12 +30,18 @@ export function useLspExtension(
     identity: typeof identity;
     extension: Extension;
   } | null>(null);
+  const [waiting, setWaiting] = useState<typeof identity | null>(null);
+  const starting = useMemo(
+    () => startingNavigation(preset?.name ?? ""),
+    [preset?.name],
+  );
 
   useEffect(() => {
     const { path, langId, ready, activation } = identity;
     if (!ready || !langId || activation !== "enabled") return;
     let cancelled = false;
     let handle: LspDocHandle | null = null;
+    setWaiting(identity);
     acquireDocExtension(path, langId)
       .then((h) => {
         if (!h) return;
@@ -45,12 +52,19 @@ export function useLspExtension(
         handle = h;
         setBound({ identity, extension: h.extension });
       })
-      .catch((e) => console.error("[lsp] acquire failed", e));
+      .catch((e) => console.error("[lsp] acquire failed", e))
+      .finally(() => {
+        if (!cancelled) setWaiting(null);
+      });
     return () => {
       cancelled = true;
       handle?.release();
     };
   }, [identity]);
 
-  return bound?.identity === identity ? bound.extension : null;
+  return bound?.identity === identity
+    ? bound.extension
+    : waiting === identity
+      ? starting
+      : null;
 }
