@@ -1,3 +1,4 @@
+pub mod dsh;
 pub mod fs;
 pub mod gateway;
 pub mod git;

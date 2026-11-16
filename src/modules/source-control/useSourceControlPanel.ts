@@ -20,6 +20,7 @@ import {
 } from "@/modules/workspace";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { folderStagePlan } from "@/modules/source-control/lib/folderStage";
+import { useCommitMessageDraft } from "@/modules/source-control/useCommitMessageDraft";
 import type { PushPlan } from "./useMultiRepoSourceControl";
 import { type RepoStatusEntry, repoDisplayName } from "./useRepoStatuses";
 import type { SourceControlSummary } from "./useSourceControl";
@@ -443,9 +444,11 @@ export function useSourceControlPanel(
   const [repo, setRepo] = useState<GitRepoInfo | null>(null);
   const [status, setStatus] = useState<GitStatusSnapshot | null>(null);
   const [selected, setSelected] = useState<DiffSelection | null>(null);
-  const [commitMessage, setCommitMessage] = useState("");
-  const commitMessageRef = useRef(commitMessage);
-  commitMessageRef.current = commitMessage;
+  const { commitMessage, setCommitMessage, clearCommittedDraft } =
+    useCommitMessageDraft(
+      workspaceScopeKey(workspace),
+      summary.repo?.repoRoot ?? null,
+    );
   const [localActionBusy, setLocalActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -1234,7 +1237,7 @@ export function useSourceControlPanel(
           }
         }
         if (failed.length === 0) {
-          if (commitMessageRef.current === commitMessage) setCommitMessage("");
+          clearCommittedDraft();
           if (!multiRepo && targets.length === 1) {
             rewordScopeRef.current = context;
             setRewordTarget(targets[0].repoRoot);
@@ -1268,6 +1271,7 @@ export function useSourceControlPanel(
     },
     [
       commitMessage,
+      clearCommittedDraft,
       multiRepo,
       pushPreview,
       refreshOtherRepos,

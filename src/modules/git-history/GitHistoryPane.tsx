@@ -105,6 +105,8 @@ type CommitFileDiffOpenInput = {
 
 type Props = {
   repoRoot: string;
+  initialBranch?: string | null;
+  graphRequest?: number;
   /** Workspace repos; >1 renders the in-pane repo switcher. */
   repos?: GitRepoHead[];
   /** Re-target this pane to another repo (parent updates the tab state). */
@@ -260,7 +262,7 @@ export type GitHistoryPaneHandle = {
 
 const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
   function GitHistoryPane(
-    { repoRoot, repos, onSwitchRepo, onOpenCommitFile },
+    { repoRoot, initialBranch, repos, onSwitchRepo, onOpenCommitFile },
     ref,
   ) {
     const workspace = LOCAL_WORKSPACE;
@@ -286,7 +288,7 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
       updateSearchOptions,
       clearFilters,
       serverActive,
-    } = useHistoryFilters();
+    } = useHistoryFilters(initialBranch);
     const { author, date, branch, noMerges, firstParent } = filters;
 
     const [openAnchor, setOpenAnchor] = useState<{
@@ -302,7 +304,9 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
     const bumpFiles = useCallback(() => setFilesTick((n) => n + 1), []);
 
     const requestIdRef = useRef(0);
-    const logOptionsRef = useRef<ReturnType<typeof serverFilterOptions>>(null);
+    const logOptionsRef = useRef<
+      NonNullable<ReturnType<typeof serverFilterOptions>>
+    >({ all: true });
     const inflightMoreRef = useRef(false);
     const filesInflightRef = useRef(new Set<string>());
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -443,21 +447,19 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
       setError(null);
       setEndReached(false);
       try {
-        const options = serverFilterOptions(
-          { author, date, branch, noMerges },
-          Date.now(),
-        );
+        const options = {
+          ...serverFilterOptions(
+            { author, date, branch, noMerges },
+            Date.now(),
+          ),
+          all: !branch,
+        };
         logOptionsRef.current = options;
-        const entries = options
-          ? await native.gitLogFiltered(
-              repoRoot,
-              {
-                ...options,
-                maxCount: PAGE_SIZE,
-              },
-              workspace,
-            )
-          : await native.gitLog(repoRoot, { limit: PAGE_SIZE }, workspace);
+        const entries = await native.gitLogFiltered(
+          repoRoot,
+          { ...options, maxCount: PAGE_SIZE },
+          workspace,
+        );
         if (requestId !== requestIdRef.current || !current()) return;
         setCommits(entries);
         setLoadStatus("idle");
@@ -479,24 +481,11 @@ const ScopedGitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
       const requestId = requestIdRef.current;
       try {
         const options = logOptionsRef.current;
-        const entries = options
-          ? await native.gitLogFiltered(
-              repoRoot,
-              {
-                ...options,
-                maxCount: PAGE_SIZE,
-                skip: commits.length,
-              },
-              workspace,
-            )
-          : await native.gitLog(
-              repoRoot,
-              {
-                limit: PAGE_SIZE,
-                beforeSha: last.sha,
-              },
-              workspace,
-            );
+        const entries = await native.gitLogFiltered(
+          repoRoot,
+          { ...options, maxCount: PAGE_SIZE, skip: commits.length },
+          workspace,
+        );
         if (requestId !== requestIdRef.current || !current()) return;
         setCommits((prev) => {
           const seen = new Set(prev.map((c) => c.sha));
@@ -944,7 +933,12 @@ export const GitHistoryPane = forwardRef<GitHistoryPaneHandle, Props>(
     const workspace = LOCAL_WORKSPACE;
     return (
       <ScopedGitHistoryPane
-        key={JSON.stringify([props.repoRoot, workspaceScopeKey(workspace)])}
+        key={JSON.stringify([
+          props.repoRoot,
+          props.initialBranch ?? null,
+          props.graphRequest ?? 0,
+          workspaceScopeKey(workspace),
+        ])}
         {...props}
         ref={ref}
       />

@@ -155,6 +155,7 @@ fn read_with(conn: &Connection, cwd: &str) -> Option<Transcript> {
         .max(updated.unwrap_or(0));
 
     Some(Transcript {
+        prompt_at: None,
         source: "opencode",
         session_id,
         title,

@@ -1,7 +1,8 @@
 pub mod modules;
 
 use modules::{
-    fs, gateway, git, history, lsp, pet, pty, schedule, sessions, shell, ssh, usage, web, workspace,
+    dsh, fs, gateway, git, history, lsp, pet, pty, schedule, sessions, shell, ssh, usage, web,
+    workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -295,6 +296,7 @@ pub fn run() {
             pty::pty_open,
             pty::pty_agent_session,
             sessions::agent_resume_command,
+            sessions::agent_session_last_message_at,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kick,
@@ -317,6 +319,9 @@ pub fn run() {
             web::web_set_password,
             web::web_has_custom_password,
             gateway::gateway_test_provider,
+            dsh::dsh_launch,
+            dsh::dsh_stop,
+            dsh::dsh_status,
             pet::pet_sessions,
             pet::pet_set_notification,
             pet::choices::pet_choice_status_reply,
@@ -373,6 +378,7 @@ pub fn run() {
             git::commands::git_panel_snapshot,
             git::commands::git_status,
             git::commands::git_diff,
+            git::commands::git_generate_commit_message,
             git::commands::git_diff_content,
             git::commands::git_stage,
             git::commands::git_unstage,

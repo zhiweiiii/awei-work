@@ -1,3 +1,4 @@
+pub mod background;
 #[cfg(windows)]
 pub mod capture;
 #[cfg(windows)]

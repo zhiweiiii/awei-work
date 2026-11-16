@@ -62,6 +62,14 @@ export function SshManagerDialog({
               <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2">
                 <span className="min-w-0 flex-1 truncate font-medium">
                   {group.name}
+                  {group.beforeConnectCodeId && (
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      前置：
+                      {profiles.find(
+                        (profile) => profile.id === group.beforeConnectCodeId,
+                      )?.name ?? "代码已删除"}
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"
@@ -91,7 +99,7 @@ export function SshManagerDialog({
                   disabled={disabled}
                   onClick={() => onEditGroup(group)}
                 >
-                  改名
+                  设置
                 </button>
                 <button
                   type="button"

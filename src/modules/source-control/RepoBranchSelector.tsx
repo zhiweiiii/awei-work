@@ -21,6 +21,7 @@ import {
   FolderGitTwoIcon,
   FolderOpenIcon,
   GitBranchIcon,
+  GitCommitIcon,
   GitBranchPlusIcon,
   PencilEdit02Icon,
   Refresh01Icon,
@@ -61,6 +62,7 @@ type Props = {
   changedCount?: (root: string) => number;
   /** Opens a path in the terminal (worktree "Open in terminal"). */
   onOpenPath?: (path: string) => void;
+  onOpenGraph: (input: { repoRoot: string; branch?: string | null }) => void;
 };
 
 type BranchDialog =
@@ -120,6 +122,7 @@ function ScopedRepoBranchSelector({
   onCheckedOut,
   changedCount,
   onOpenPath,
+  onOpenGraph,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [branches, setBranches] = useState<Record<string, GitBranchEntry[]>>(
@@ -569,6 +572,13 @@ function ScopedRepoBranchSelector({
                         {count}
                       </span>
                     )}
+                    <GraphButton
+                      label={`查看 ${shortName(repo.repoRoot)} 的 Commit Graph`}
+                      onClick={() => {
+                        setOpen(false);
+                        onOpenGraph({ repoRoot: repo.repoRoot });
+                      }}
+                    />
                     {isActive && (
                       <HugeiconsIcon
                         icon={Tick02Icon}
@@ -580,6 +590,10 @@ function ScopedRepoBranchSelector({
                   </DropdownMenuSubTrigger>
                   <BranchFlyout
                     repoRoot={repo.repoRoot}
+                    onOpenGraph={(branch) => {
+                      setOpen(false);
+                      onOpenGraph({ repoRoot: repo.repoRoot, branch });
+                    }}
                     branches={repoBranches}
                     loading={loading.has(repo.repoRoot)}
                     error={branchErrors[repo.repoRoot]}
@@ -755,6 +769,7 @@ function ScopedRepoBranchSelector({
 }
 
 function BranchFlyout({
+  onOpenGraph,
   repoRoot,
   branches,
   loading,
@@ -779,6 +794,7 @@ function BranchFlyout({
   onDelete,
 }: {
   repoRoot: string;
+  onOpenGraph: (branch: string) => void;
   branches: GitBranchEntry[];
   loading: boolean;
   error?: string;
@@ -896,6 +912,7 @@ function BranchFlyout({
             onRemoteSelect,
             onRename,
             onDelete,
+            onOpenGraph,
           )}
       </div>
     </DropdownMenuSubContent>
@@ -910,6 +927,7 @@ function renderBranches(
   onRemoteSelect: (branch: GitBranchEntry) => void,
   onRename: (branch: GitBranchEntry) => void,
   onDelete: (branch: GitBranchEntry) => void,
+  onOpenGraph: (branch: string) => void,
 ) {
   const locals = branches.filter((b) => b.kind !== "remote");
   const remotes = branches.filter((b) => b.kind === "remote");
@@ -931,6 +949,7 @@ function renderBranches(
         <BranchItem
           key={`l:${branch.name}`}
           branch={branch}
+          onOpenGraph={() => onOpenGraph(branch.name)}
           busy={checkingOut === `${repoRoot}:${branch.name}`}
           blocked={checkingOut !== null}
           onSelect={() => onSelectLocal(branch.name)}
@@ -950,6 +969,7 @@ function renderBranches(
         <BranchItem
           key={`r:${branch.name}`}
           branch={branch}
+          onOpenGraph={() => onOpenGraph(branch.name)}
           busy={checkingOut === `${repoRoot}:${branch.name}`}
           blocked={checkingOut !== null}
           onSelect={() => onRemoteSelect(branch)}
@@ -961,6 +981,7 @@ function renderBranches(
 }
 
 function BranchItem({
+  onOpenGraph,
   branch,
   busy,
   blocked,
@@ -969,6 +990,7 @@ function BranchItem({
   onDelete,
 }: {
   branch: GitBranchEntry;
+  onOpenGraph: () => void;
   busy: boolean;
   blocked: boolean;
   onSelect: () => void;
@@ -1027,6 +1049,10 @@ function BranchItem({
           工作树
         </span>
       ) : null}
+      <GraphButton
+        label={`查看 ${branch.name} 的 Commit Graph`}
+        onClick={onOpenGraph}
+      />
       {showRename || showDelete ? (
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {showRename ? (
@@ -1064,5 +1090,33 @@ function BranchItem({
         </div>
       ) : null}
     </DropdownMenuItem>
+  );
+}
+
+function GraphButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-ring"
+      onPointerDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      <HugeiconsIcon icon={GitCommitIcon} size={13} strokeWidth={1.75} />
+    </button>
   );
 }

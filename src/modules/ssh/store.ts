@@ -2,6 +2,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { validEntry, type ConnectionProfile } from "@/modules/ssh/entryTypes";
+import type { ConnectionGroup } from "@/modules/ssh/groupPrerequisite";
 export type {
   SshProfile,
   ConnectionProfile,
@@ -11,7 +12,7 @@ export type {
   CodeProfile,
 } from "@/modules/ssh/entryTypes";
 
-export type SshGroup = { id: string; name: string };
+export type SshGroup = ConnectionGroup;
 type Config = { groups: SshGroup[]; profiles: ConnectionProfile[] };
 type State = Config & {
   ready: boolean;
@@ -63,7 +64,13 @@ function validConfig(value: unknown): value is Config {
     value.length <= 256 &&
     !/[\u0000-\u001f]/.test(value);
   return (
-    data.groups.every((group) => id(group.id) && text(group.name)) &&
+    data.groups.every(
+      (group) =>
+        id(group.id) &&
+        text(group.name) &&
+        (group.beforeConnectCodeId === undefined ||
+          id(group.beforeConnectCodeId)),
+    ) &&
     new Set(data.groups.map((group) => group.id)).size === data.groups.length &&
     data.profiles.every(
       (profile) =>
@@ -122,6 +129,20 @@ export function updateSsh(change: (config: Config) => Config): Promise<void> {
     const config = change({ groups, profiles });
     if (!useSsh.getState().ready || !validConfig(config))
       throw new Error("SSH 配置无效");
+    for (const group of config.groups) {
+      if (
+        group.beforeConnectCodeId &&
+        profiles.some(
+          (profile) =>
+            profile.id === group.beforeConnectCodeId && profile.kind === "code",
+        ) &&
+        !config.profiles.some(
+          (profile) =>
+            profile.id === group.beforeConnectCodeId && profile.kind === "code",
+        )
+      )
+        throw new Error(`请先修改分组“${group.name}”的前置代码，再删除此连接`);
+    }
     await disk.set("connections", config);
     await disk.save();
     useSsh.setState(config);

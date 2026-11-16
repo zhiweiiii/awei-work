@@ -391,6 +391,28 @@ pub async fn agent_resume_command(
     .await
     .map_err(|error| error.to_string())?
 }
+
+#[tauri::command]
+pub async fn agent_session_last_message_at(
+    cwd: String,
+    agent: String,
+    id: String,
+) -> Result<Option<i64>, String> {
+    if !matches!(agent.as_str(), "claude" | "codex")
+        || !valid_id(&id)
+        || cwd.is_empty()
+        || cwd.len() > 32768
+        || cwd.chars().any(char::is_control)
+    {
+        return Err("Invalid saved agent session".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = resolve_session_file(&cwd, &agent, Some(&id), UNIX_EPOCH)?;
+        crate::modules::transcript::read_file(&file, &agent)?.last_user_message_at()
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
 #[tauri::command]
 pub async fn agent_sessions(
     cwd: String,
@@ -400,6 +422,18 @@ pub async fn agent_sessions(
     tauri::async_runtime::spawn_blocking(move || {
         let mut all = list_sessions(&cwd, "claude")?;
         all.extend(list_sessions(&cwd, "codex")?);
+        // dsh has its own store and its own format, so it is read by its own
+        // module rather than forced through this one's per-agent walk.
+        all.extend(
+            crate::modules::dsh::sessions_for(&cwd)
+                .into_iter()
+                .map(|s| Session {
+                    agent: "dsh",
+                    id: s.id,
+                    title: s.title,
+                    updated_at: s.updated_at,
+                }),
+        );
         all.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
         Ok(all)
     })

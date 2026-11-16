@@ -108,15 +108,23 @@ fn apply_gateway(cmd: &mut CommandBuilder, provider_id: Option<&str>) {
     let Some(provider_id) = provider_id else {
         return;
     };
-    let Some((base_url, token)) = crate::modules::gateway::shell_env(provider_id) else {
+    let Some(env) = crate::modules::gateway::shell_env(provider_id) else {
         log::warn!("pty gateway: provider {provider_id} unavailable, shell left unrouted");
         return;
     };
-    log::info!("pty gateway: routing this shell through {base_url}");
-    cmd.env("ANTHROPIC_BASE_URL", base_url);
-    cmd.env("ANTHROPIC_AUTH_TOKEN", token);
+    log::info!("pty gateway: routing this shell through {}", env.base_url);
+    cmd.env("ANTHROPIC_BASE_URL", env.base_url);
+    cmd.env("ANTHROPIC_AUTH_TOKEN", env.token);
     cmd.env_remove("ANTHROPIC_MODEL");
     cmd.env_remove("ANTHROPIC_API_KEY");
+    // Without this Claude Code assumes 200k for a model it does not recognise
+    // and only compacts after the relay has already refused the request.
+    match env.context_window {
+        Some(window) => {
+            cmd.env("CLAUDE_CODE_MAX_CONTEXT_TOKENS", window.to_string());
+        }
+        None => cmd.env_remove("CLAUDE_CODE_MAX_CONTEXT_TOKENS"),
+    }
 }
 
 fn apply_common(

@@ -178,10 +178,13 @@ pub struct AgentStatus {
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentResume {
     agent: String,
     id: String,
     cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_user_message_at: Option<i64>,
 }
 
 impl Drop for Session {
@@ -326,6 +329,9 @@ impl Session {
         }
         let file = self.web_transcript_file(cwd)?;
         let id = crate::modules::sessions::session_id_for_file(&file, &run.name, cwd)?;
+        let last_user_message_at = self
+            .web_transcript(cwd, &run.name)
+            .and_then(|transcript| transcript.last_user_message_at());
         let current = self.agent.lock().ok()?;
         current.as_ref().filter(|current| {
             current.id == run.id && current.name == run.name && current.file.as_ref() == Some(&file)
@@ -334,6 +340,7 @@ impl Session {
             agent: run.name,
             id,
             cwd: cwd.to_string(),
+            last_user_message_at,
         })
     }
 

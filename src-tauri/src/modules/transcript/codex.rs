@@ -38,6 +38,7 @@ struct ParseState {
     steps: Vec<Message>,
     pending_tools: HashMap<String, (usize, usize)>,
     working: Option<Working>,
+    prompt_at: Option<i64>,
 }
 
 pub(super) fn read_file(file: &Path) -> Option<std::sync::Arc<Transcript>> {
@@ -71,6 +72,12 @@ impl super::jsonl::JsonlState for ParseState {
                     .and_then(|payload| payload.get("type"))
                     .and_then(Value::as_str)
                 {
+                    Some("user_message") => {
+                        let at = timestamp(&value);
+                        if at > 0 {
+                            self.prompt_at = Some(self.prompt_at.unwrap_or(0).max(at));
+                        }
+                    }
                     Some("task_started") => {
                         let since = value
                             .get("payload")
@@ -99,6 +106,7 @@ impl super::jsonl::JsonlState for ParseState {
         }
 
         Some(Transcript {
+            prompt_at: self.prompt_at,
             source: "codex",
             session_id,
             title: None,

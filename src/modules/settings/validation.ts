@@ -171,7 +171,7 @@ export function normalizePreference(
         : {};
     case "claudeGateway": {
       if (!record(value) || !Array.isArray(value.providers))
-        return { providers: [], current: null };
+        return { providers: [], current: null, global: null };
       const seen = new Set<string>();
       const providers = value.providers.filter((provider) => {
         if (
@@ -198,10 +198,29 @@ export function normalizePreference(
         return true;
       });
       return {
-        providers,
+        // The window is coerced rather than required: entries written before it
+        // existed are still valid, and a bad value only means falling back to
+        // Claude Code's own assumption.
+        providers: providers.map((provider) => ({
+          ...provider,
+          contextWindow:
+            typeof (provider as Record<string, unknown>).contextWindow ===
+              "number" &&
+            Number.isFinite((provider as Record<string, unknown>).contextWindow)
+              ? Math.floor(
+                  (provider as Record<string, unknown>).contextWindow as number,
+                )
+              : null,
+        })),
         current:
           typeof value.current === "string" && seen.has(value.current)
             ? value.current
+            : null,
+        // A relay that was deleted while it was the global one must not be
+        // resurrected by name: the next shell would then fail every request.
+        global:
+          typeof value.global === "string" && seen.has(value.global)
+            ? value.global
             : null,
       };
     }

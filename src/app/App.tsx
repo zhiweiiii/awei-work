@@ -201,6 +201,8 @@ export default function App() {
     moveProject,
     parkProject,
     activateProject,
+    reorderHeaderProjects,
+    updateProjectAgentSnapshot,
     removeTabsForSpace,
     markBooted,
     setActiveSpaceForNewTabs,
@@ -318,6 +320,7 @@ export default function App() {
     activeId,
     activeSpaceId: activeSpaceId ?? DEFAULT_SPACE_ID,
     enabled: spacesHydrated,
+    onAgentSnapshot: updateProjectAgentSnapshot,
   });
 
   // One process-wide fs watch feeds every panel through the event bus; the
@@ -670,33 +673,6 @@ export default function App() {
     [findClaudeLeaf, setActiveId, focusPane],
   );
 
-  /** Hand arbitrary text to the agent in this command line, for callers that
-   *  build their own payload (the commit panel's "write me a message"). */
-  const sendTextToAgent = useCallback(
-    (text: string): boolean => {
-      const leafId = findClaudeLeaf(null);
-      if (leafId === null) {
-        toast.error("请先打开 agent", {
-          description: "在当前命令行里启动 Claude Code 或 opencode 后再发送。",
-        });
-        return false;
-      }
-      if (!pasteToLeaf(leafId, text)) {
-        toast.error("该 agent 所在的命令行已关闭");
-        return false;
-      }
-      const tab = tabsRef.current.find(
-        (t) => t.kind === "terminal" && hasLeaf(t.paneTree, leafId),
-      );
-      if (tab) {
-        setActiveId(tab.id);
-        focusPane(tab.id, leafId);
-      }
-      return true;
-    },
-    [findClaudeLeaf, setActiveId, focusPane],
-  );
-
   const sendSelectionToClaude = useCallback(
     (targetLeafId?: number) => {
       const selection = captureActiveSelection();
@@ -1011,6 +987,31 @@ export default function App() {
     },
     [newPreviewTab],
   );
+
+  /** Open dsh's web surface, starting its server first when it is not running.
+   *
+   *  dsh has no terminal client, so "new conversation" cannot be a command
+   *  typed into a shell: the conversation lives in that page. `--no-open` on
+   *  the Rust side keeps the server from launching a browser of its own, which
+   *  would otherwise race this tab. */
+  const openDsh = useCallback(async () => {
+    const pending = toast.loading("正在打开 dsh…");
+    try {
+      const launch = await native.dshLaunch();
+      if (!launch.url) {
+        toast.error("dsh 没有返回可打开的地址", { id: pending });
+        return;
+      }
+      openPreviewTab(launch.url);
+      toast.success("已打开 dsh", { id: pending });
+    } catch (e) {
+      toast.error("启动 dsh 失败", {
+        id: pending,
+        description: typeof e === "string" ? e : undefined,
+        duration: 8000,
+      });
+    }
+  }, [openPreviewTab]);
 
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
@@ -1645,6 +1646,7 @@ export default function App() {
                 openGitGraphFromContext();
               }}
               onClose={handleParkProject}
+              onReorder={reorderHeaderProjects}
               onPin={pinTab}
               onRename={handleRenameTab}
               onOverrideLanguage={setOverrideLanguage}
@@ -1653,6 +1655,7 @@ export default function App() {
                   <SessionHistoryMenu
                     cwd={activeCwd}
                     onRun={runInActiveTerminal}
+                    onOpenDsh={activeCwd ? () => void openDsh() : null}
                   />
                 )
               }
@@ -1789,7 +1792,6 @@ export default function App() {
                         <SourceControlPanel
                           open={sidebarOpen}
                           sourceControl={sourceControl}
-                          onSendToAgent={sendTextToAgent}
                           repos={multiRepo.repos}
                           repoStatusEntries={multiRepo.repoStatusEntries}
                           applyRepoStatus={multiRepo.applyRepoStatus}
@@ -1804,7 +1806,6 @@ export default function App() {
                           onManageRemotes={() => setRemoteManagerOpen(true)}
                           onCloneRepository={() => setCloneRepositoryOpen(true)}
                           onOpenDiff={openGitDiffTab}
-                          onOpenGitGraph={openGitGraphFromContext}
                           onOpenFile={handleOpenFile}
                           onNavigateToPath={cdInNewTab}
                           repositoryTarget={sourceControlRepositoryTarget}
@@ -1814,6 +1815,7 @@ export default function App() {
                           headerExtra={
                             <RepoBranchSelector
                               repos={multiRepo.repos}
+                              onOpenGraph={openCommitHistoryTab}
                               activeRepo={multiRepo.activeRepo}
                               activeBranch={
                                 multiRepo.summary.status?.branch ?? null

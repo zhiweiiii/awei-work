@@ -1,4 +1,8 @@
 import {
+  commitMessageDraftKey,
+  useCommitMessageDraftStore,
+} from "@/modules/source-control/useCommitMessageDraft";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -53,7 +57,6 @@ import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 import {
   Alert02Icon,
   ArrowDown01Icon,
-  ArrowRight01Icon,
   ArrowUp01Icon,
   CheckmarkCircle01Icon,
   ChevronDownIcon,
@@ -64,7 +67,6 @@ import {
   Folder01Icon,
   FolderCloudIcon,
   FolderGitTwoIcon,
-  GitBranchIcon,
   Refresh01Icon,
   SparklesIcon,
   Tick02Icon,
@@ -112,7 +114,6 @@ import {
 type Props = {
   open: boolean;
   sourceControl: SourceControlSummary;
-  onOpenGitGraph?: () => void;
   onOpenDiff: (input: {
     path: string;
     repoRoot: string;
@@ -121,9 +122,6 @@ type Props = {
     title?: string;
   }) => void;
   onOpenFile?: (absolutePath: string) => void;
-  /** Paste text into the agent running in the current command line. Returns
-   *  false when there is none, which is when the button has nothing to do. */
-  onSendToAgent?: (text: string) => boolean;
   onNavigateToPath?: (path: string) => void;
   repositoryTarget: SourceControlRepositoryTarget;
   onFollowRepositoryContext: () => void;
@@ -610,10 +608,8 @@ export const SourceControlPanel = memo(function SourceControlPanel(
 function ScopedSourceControlPanel({
   open,
   sourceControl,
-  onOpenGitGraph,
   onOpenDiff,
   onOpenFile,
-  onSendToAgent,
   onNavigateToPath,
   repositoryTarget,
   onFollowRepositoryContext,
@@ -734,7 +730,13 @@ function ScopedSourceControlPanel({
 
   const planLoading = scm.actionBusy === "push-preview";
   const pullBusy = scm.actionBusy === "pull";
-  const draftBusy = scm.actionBusy === "draft";
+  const draftKey = commitMessageDraftKey(
+    workspaceScopeKey(LOCAL_WORKSPACE),
+    sourceControl.repo?.repoRoot ?? null,
+  );
+  const draftBusy = useCommitMessageDraftStore(
+    (state) => draftKey !== null && state.generations.has(draftKey),
+  );
   const rowIdPrefix = useId();
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -744,58 +746,34 @@ function ScopedSourceControlPanel({
     };
   }, []);
 
-  /* Hand the staged diff to the agent and ask it for the commit message.
-     The patch is what a message has to be written from; a list of file names
-     is not enough to say WHY something changed. Multi-repo sends each repo's
-     patch under its own heading, because one message per repo is what the
-     commit flow will ask for.
-
-     Sent without a trailing newline so the prompt lands in the agent's input
-     unsent: the user gets to add context before pressing enter. */
-  const sendChangesToAgent = useCallback(async () => {
-    if (!onSendToAgent) {
-      toast.error("请先打开 agent");
-      return;
-    }
+  const generateCommitMessage = useCallback(async () => {
+    if (!draftKey) return;
     const roots =
       scm.repoGroups.length > 0
         ? scm.repoGroups
-            .filter((g) => g.files.some((f) => f.staged))
-            .map((g) => ({ repoRoot: g.repoRoot, name: g.name }))
+            .filter((group) => group.files.some((file) => file.staged))
+            .map((group) => group.repoRoot)
         : scm.repo
-          ? [{ repoRoot: scm.repo.repoRoot, name: basename(scm.repo.repoRoot) }]
+          ? [scm.repo.repoRoot]
           : [];
-    if (roots.length === 0) return;
-    await scm.runAction("draft", async (workspace, ensureCurrent) => {
-      const parts: string[] = [];
-      let patchSize = 0;
-      for (const r of roots) {
-        const res = await native.gitDiff(r.repoRoot, null, true, workspace);
-        ensureCurrent();
-        const patch = res.diffText.trim();
-        if (!patch) continue;
-        patchSize += patch.length;
-        if (patchSize > 512 * 1024)
-          throw new Error(
-            "Staged changes are too large to send. Select fewer files first.",
-          );
-        parts.push(roots.length > 1 ? `### ${r.name}\n\n${patch}` : patch);
-      }
-      if (parts.length === 0) {
-        toast.error("勾选的变更没有可读的差异");
-        return;
-      }
-      const body = [
-        "根据以下 git 变更内容，生成一条提交信息（commit message）：",
-        "",
-        "```diff",
-        parts.join("\n\n"),
-        "```",
-      ].join("\n");
-      if (!onSendToAgent(body)) return;
-      toast.success("已发送到 agent");
-    });
-  }, [onSendToAgent, scm.repoGroups, scm.repo, scm.runAction]);
+    if (!roots.length || !useCommitMessageDraftStore.getState().begin(draftKey))
+      return;
+    const label = basename(sourceControl.repo?.repoRoot ?? roots[0]);
+    try {
+      const message = await native.gitGenerateCommitMessage(
+        roots,
+        LOCAL_WORKSPACE,
+      );
+      const applied = useCommitMessageDraftStore
+        .getState()
+        .finish(draftKey, message);
+      if (!applied)
+        toast.info(`${label}：提交信息已生成，保留你手动修改的内容`);
+    } catch (error) {
+      useCommitMessageDraftStore.getState().finish(draftKey);
+      errorToast(`${label}：生成提交信息失败`, error);
+    }
+  }, [draftKey, scm.repoGroups, scm.repo, sourceControl.repo]);
   const changedCount = scm.fileEntries.length;
   const pushStatusLabel = upstreamBadgeLabel(scm.status?.upstream);
   const hasUpstream = !!scm.status?.upstream;
@@ -1235,28 +1213,6 @@ function ScopedSourceControlPanel({
           />
         ) : null}
 
-        {onOpenGitGraph ? (
-          <button
-            type="button"
-            onClick={() => onOpenGitGraph()}
-            className="group flex shrink-0 cursor-pointer items-center gap-2 border-b border-border/40 px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-          >
-            <HugeiconsIcon
-              icon={GitBranchIcon}
-              size={13}
-              strokeWidth={1.85}
-              className="shrink-0"
-            />
-            <span className="flex-1 text-[12px] font-medium">Commit Graph</span>
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              size={12}
-              strokeWidth={2}
-              className="shrink-0 opacity-50 transition-transform group-hover:translate-x-0.5"
-            />
-          </button>
-        ) : null}
-
         {panelState === "loading" ? (
           <PanelCenter title="Loading repository" />
         ) : null}
@@ -1343,29 +1299,32 @@ function ScopedSourceControlPanel({
                 </span>
               </div>
 
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className="grid w-full grid-cols-[auto_1fr_1fr] gap-1.5">
                 <Button
-                  variant="ghost"
-                  size="xs"
-                  className="h-6 shrink-0 gap-1 px-1.5 text-[10.5px]"
+                  variant="secondary"
+                  size="icon-sm"
+                  className="size-7"
+                  aria-label="生成提交信息"
                   disabled={!!scm.actionBusy || stagedCount === 0 || draftBusy}
                   title={
                     stagedCount === 0
                       ? "先勾选要提交的变更"
-                      : "把勾选的变更发给 agent，让它写提交信息"
+                      : draftBusy
+                        ? "Codex 正在生成提交信息"
+                        : "用 Codex 生成提交信息"
                   }
-                  onClick={() => void sendChangesToAgent()}
+                  onClick={() => void generateCommitMessage()}
                 >
-                  <HugeiconsIcon
-                    icon={SparklesIcon}
-                    size={12}
-                    strokeWidth={1.75}
-                  />
-                  {draftBusy ? "读取中…" : "让 agent 写提交信息"}
+                  {draftBusy ? (
+                    <Spinner className="size-3.5" />
+                  ) : (
+                    <HugeiconsIcon
+                      icon={SparklesIcon}
+                      size={14}
+                      strokeWidth={1.75}
+                    />
+                  )}
                 </Button>
-              </div>
-
-              <div className="grid w-full grid-cols-2 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button

@@ -21,9 +21,14 @@ import { errorToast } from "@/lib/errorToast";
 import {
   leafCwd,
   leafHasForegroundProcess,
+  liveLeafIds,
   respawnSession,
 } from "@/modules/terminal";
-import { gatewayPin, setGatewayPin } from "@/modules/terminal/lib/gatewayPins";
+import {
+  clearGatewayPin,
+  gatewayPin,
+  setGatewayPin,
+} from "@/modules/terminal/lib/gatewayPins";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   type ClaudeApiFormat,
@@ -70,7 +75,17 @@ type Draft = {
   apiFormat: ClaudeApiFormat;
   authStyle: ClaudeAuthStyle;
   models: { default: string; opus: string; sonnet: string; haiku: string };
+  /** Text in the input, so it can be cleared; parsed on save. */
+  contextWindow: string;
 };
+
+/** Parse the context-window input. Empty or unparseable is "no opinion", which
+ *  leaves Claude Code on its own 200k assumption rather than guessing for the
+ *  user. */
+function parseContextWindow(text: string): number | null {
+  const value = Number.parseInt(text.replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
 
 const EMPTY_DRAFT: Draft = {
   id: null,
@@ -80,6 +95,7 @@ const EMPTY_DRAFT: Draft = {
   apiFormat: "openai_chat",
   authStyle: "bearer",
   models: { ...EMPTY_MODEL_ROUTES },
+  contextWindow: "",
 };
 
 /**
@@ -98,16 +114,19 @@ const PRESETS: { label: string; draft: Draft }[] = [
     draft: {
       id: null,
       name: "OpenCode Go",
-      baseUrl: "https://opencode.ai/zen/go/v1",
+      baseUrl: "https://opencode.ai/inference/go/openai/v1",
       apiKey: "",
       apiFormat: "openai_chat",
       authStyle: "bearer",
       models: {
-        default: "glm-5.2",
+        default: "deepseek-v4.1-flash",
         opus: "deepseek-v4-pro",
-        sonnet: "glm-5.2",
-        haiku: "deepseek-v4-flash",
+        sonnet: "deepseek-v4.1-flash",
+        haiku: "deepseek-v4.1-flash",
       },
+      // The plan's models are 128k, not the 200k Claude Code would assume for
+      // a name it does not know.
+      contextWindow: "128000",
     },
   },
 ];
@@ -173,11 +192,23 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
   const [pinRevision, setPinRevision] = useState(0);
 
   const pinnedId = leafId === null ? undefined : gatewayPin(leafId);
-  const pinned =
-    config.providers.find((provider) => provider.id === pinnedId) ?? null;
+  /* The relay this terminal actually uses: its own pin, else the app-wide
+     choice. The panel has to answer with the second one too, or a
+     globally-routed terminal would look unrouted. */
+  const globalId = config.global;
+  const globalProvider =
+    config.providers.find((provider) => provider.id === globalId) ?? null;
+  const effectiveId = pinnedId === undefined ? globalId : pinnedId;
+  const effective =
+    config.providers.find((provider) => provider.id === effectiveId) ?? null;
+  const routedGlobally =
+    pinnedId === undefined && effectiveId !== null && effective !== null;
   /* A provider deleted out from under a terminal leaves the shell pointing at
-     a URL the gateway will answer with 503, which is worth showing. */
-  const orphaned = pinnedId !== undefined && pinned === null;
+     a URL the gateway will answer with 503, which is worth showing. Only a
+     pin can dangle: the global choice is validated against the list when it is
+     read, so it cannot name something that is gone. */
+  const orphaned =
+    pinnedId !== undefined && pinnedId !== null && effective === null;
 
   const refreshStatus = async () => {
     const request = ++statusRequestRef.current;
@@ -202,10 +233,14 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
     }
   };
 
-  /** Record the choice and restart the shell so it inherits it. The variables
-   *  are injected when the pty spawns, which is the only way they can reach a
-   *  Claude Code without also landing in the terminal and its history. */
-  const applyToTerminal = async (value: string | null): Promise<boolean> => {
+  /** Restart one shell so it picks the routing currently recorded for it.
+   *
+   *  `pin` is what to write first: `undefined` leaves the terminal without an
+   *  opinion (so the global choice applies), a string pins it, `null` opts this
+   *  one terminal out of the global choice. */
+  const applyToTerminal = async (
+    pin: string | null | undefined,
+  ): Promise<boolean> => {
     if (!mountedRef.current) return false;
     if (leafId === null) {
       toast.error("没有可用的命令行");
@@ -217,19 +252,23 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
     }
     if (!mountedRef.current) return false;
     const previous = gatewayPin(leafId);
-    setGatewayPin(leafId, value);
+    if (pin === undefined) clearGatewayPin(leafId);
+    else setGatewayPin(leafId, pin);
     setPinRevision((n) => n + 1);
+    const restore = () => {
+      if (previous === undefined) clearGatewayPin(leafId);
+      else setGatewayPin(leafId, previous);
+      if (mountedRef.current) setPinRevision((n) => n + 1);
+    };
     try {
       if (!(await respawnSession(leafId, leafCwd(leafId) ?? undefined))) {
-        setGatewayPin(leafId, previous ?? null);
-        if (mountedRef.current) setPinRevision((n) => n + 1);
+        restore();
         toast.error("命令行正在启动或未能启动，请稍后重试");
         return false;
       }
       return true;
     } catch (e) {
-      setGatewayPin(leafId, previous ?? null);
-      if (mountedRef.current) setPinRevision((n) => n + 1);
+      restore();
       errorToast("重启命令行失败", e);
       return false;
     }
@@ -296,10 +335,88 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
   const deactivate = async () => {
     if (!startOperation()) return;
     try {
+      // An explicit opt-out, not "follow the global choice": 停用 on a terminal
+      // means this shell, so it stays unrouted after everything else was made
+      // global.
       if (!(await applyToTerminal(null))) return;
       if (!mountedRef.current) return;
       setOpen(false);
       toast.success("本命令行已停用");
+    } finally {
+      finishOperation();
+    }
+  };
+
+  /** Make one relay the default for every command line, now and later.
+   *
+   *  Turning it on writes the preference and clears the pins of the command
+   *  lines that are not running anything, then restarts them, so the answer is
+   *  the same whether a shell already existed or is opened tomorrow. A pin is
+   *  only cleared for an idle terminal: killing a running agent to change its
+   *  endpoint would lose work, and that terminal keeps its own pin anyway.
+   *  Turning it off writes the preference and touches nothing already running;
+   *  new shells simply stop being routed. */
+  const toggleGlobal = async (provider: ClaudeProvider | null) => {
+    if (!startOperation()) return;
+    try {
+      if (provider) {
+        const probe = await invoke<TestResult>("gateway_test_provider", {
+          provider,
+        });
+        if (!mountedRef.current) return;
+        if (!probe.ok) {
+          setTest(probe);
+          errorToast(`${provider.name} 接口不可用，未全局启用`, probe.message);
+          return;
+        }
+      }
+      const latest = usePreferencesStore.getState().claudeGateway;
+      const next: ClaudeGatewayConfig = {
+        ...latest,
+        global: provider?.id ?? null,
+      };
+      if (!(await persist(next))) return;
+      if (!mountedRef.current) return;
+
+      if (!provider) {
+        toast.success("已停止全局转发，新命令行不再自动使用供应商");
+        return;
+      }
+
+      let restarted = 0;
+      let skipped = 0;
+      for (const id of liveLeafIds()) {
+        // A pin the user set on purpose outlives this; so does a busy shell.
+        if (gatewayPin(id) !== undefined) continue;
+        if (await leafHasForegroundProcess(id)) {
+          skipped += 1;
+          continue;
+        }
+        if (await respawnSession(id, leafCwd(id) ?? undefined)) restarted += 1;
+      }
+      if (!mountedRef.current) return;
+      setOpen(false);
+      toast.success(
+        skipped > 0
+          ? `已全局使用 ${provider.name}：重启 ${restarted} 个，${skipped} 个正在运行，未改动`
+          : `已全局使用 ${provider.name}：${restarted} 个命令行已切换`,
+      );
+    } catch (e) {
+      errorToast("设置全局转发失败", e);
+    } finally {
+      finishOperation();
+    }
+  };
+
+  /** Drop this terminal's own pin and go back to whatever the app-wide choice
+   *  is. Only meaningful when there is one, and only offered then. */
+  const followGlobal = async () => {
+    if (!startOperation()) return;
+    try {
+      if (!(await applyToTerminal(undefined))) return;
+      if (!mountedRef.current) return;
+      setOpen(false);
+      toast.success("本命令行已跟随全局设置");
     } finally {
       finishOperation();
     }
@@ -347,6 +464,7 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
         sonnet: draft.models.sonnet.trim(),
         haiku: draft.models.haiku.trim(),
       },
+      contextWindow: parseContextWindow(draft.contextWindow),
     };
   };
 
@@ -369,6 +487,7 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
           sonnet: draft.models.sonnet.trim(),
           haiku: draft.models.haiku.trim(),
         },
+        contextWindow: parseContextWindow(draft.contextWindow),
       };
       const latest = usePreferencesStore.getState().claudeGateway;
       if (draft.id && !latest.providers.some((item) => item.id === draft.id)) {
@@ -393,6 +512,10 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
       await persist({
         providers,
         current: latest.current === provider.id ? null : latest.current,
+        // Deleting the global relay stops the global choice. Leaving the id
+        // behind would keep the setting alive but unnamed, and every new shell
+        // would be routed to a provider the gateway cannot resolve.
+        global: latest.global === provider.id ? null : latest.global,
       });
       if (mountedRef.current) setPinRevision((n) => n + 1);
     } finally {
@@ -407,7 +530,8 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
     <>
       <ProviderBadge
         key={pinRevision}
-        name={pinned?.name ?? null}
+        name={effective?.name ?? null}
+        global={routedGlobally}
         orphaned={orphaned}
       />
       <Popover open={open} onOpenChange={onOpenChange}>
@@ -443,7 +567,8 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
             ) : null}
 
             {config.providers.map((provider) => {
-              const active = provider.id === pinnedId;
+              const isGlobal = provider.id === globalId;
+              const active = provider.id === effectiveId;
               return (
                 <div
                   key={provider.id}
@@ -459,12 +584,17 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                     <span
                       aria-hidden
                       className={`size-1.5 shrink-0 rounded-full ${
-                        active ? "bg-emerald-500" : "bg-muted-foreground/30"
+                        active
+                          ? "bg-emerald-500"
+                          : isGlobal
+                            ? "bg-emerald-500/40"
+                            : "bg-muted-foreground/30"
                       }`}
                     />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="w-full truncate text-[11px] text-foreground">
+                      <span className="flex w-full items-center gap-1.5 truncate text-[11px] text-foreground">
                         {provider.name}
+                        {isGlobal ? <GlobalTag /> : null}
                       </span>
                       <span className="w-full truncate text-[10px] text-muted-foreground">
                         {provider.apiFormat === "openai_chat"
@@ -472,6 +602,9 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                           : "Anthropic 直通"}
                         {" · "}
                         {provider.baseUrl}
+                        {provider.contextWindow
+                          ? ` · ${Math.round(provider.contextWindow / 1000)}k`
+                          : ""}
                       </span>
                     </span>
                   </button>
@@ -482,7 +615,35 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => setDraft({ ...provider, id: provider.id })}
+                      onClick={() =>
+                        void toggleGlobal(isGlobal ? null : provider)
+                      }
+                      title={
+                        isGlobal
+                          ? "停止全局转发，新命令行不再自动使用它"
+                          : "让所有命令行都用这个供应商，包括以后新开的"
+                      }
+                      className={`flex h-6 items-center gap-1 rounded px-1.5 text-[10px] ${
+                        isGlobal
+                          ? "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
+                          : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                      } disabled:opacity-50`}
+                    >
+                      {isGlobal ? "取消全局" : "全局"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        setDraft({
+                          ...provider,
+                          id: provider.id,
+                          contextWindow:
+                            provider.contextWindow === null
+                              ? ""
+                              : String(provider.contextWindow),
+                        })
+                      }
                       title="编辑"
                       className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:opacity-50"
                     >
@@ -561,7 +722,7 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                     onChange={(e) =>
                       setDraft({ ...draft, baseUrl: e.target.value })
                     }
-                    placeholder="https://opencode.ai/zen/go/v1"
+                    placeholder="https://opencode.ai/inference/go/openai/v1"
                     spellCheck={false}
                   />
                 </Field>
@@ -642,9 +803,26 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                         models: { ...draft.models, default: e.target.value },
                       })
                     }
-                    placeholder="glm-5.2"
+                    placeholder="deepseek-v4.1-flash"
                     spellCheck={false}
                   />
+                </Field>
+                <Field label="上下文窗口（tokens）">
+                  <Input
+                    aria-label="上下文窗口"
+                    className="h-8"
+                    inputMode="numeric"
+                    value={draft.contextWindow}
+                    onChange={(e) =>
+                      setDraft({ ...draft, contextWindow: e.target.value })
+                    }
+                    placeholder="留空按 Claude Code 默认（200k）"
+                    spellCheck={false}
+                  />
+                  <span className="text-[10px] leading-snug text-muted-foreground">
+                    中转站模型的真实上限，比如 128000。填小了会提早在压缩，
+                    填大了仍会被上游拒绝。
+                  </span>
                 </Field>
                 <div className="grid grid-cols-3 gap-2">
                   {(["opus", "sonnet", "haiku"] as const).map((role) => (
@@ -666,8 +844,9 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                   ))}
                 </div>
                 <p className="text-[10.5px] leading-snug text-muted-foreground">
-                  Claude Code
-                  请求哪一档模型，就发对应的那一行；留空的沿用默认模型。
+                  Opus、Sonnet、Haiku 请求按对应项转发，留空沿用默认。 Claude
+                  Code
+                  直接指定这里已配置的上游模型时保留原名；其他名称走默认模型。
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -711,20 +890,38 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                 {status === null
                   ? "网关状态暂不可用"
                   : status.running
-                    ? `网关 ${status.origin} · 只作用于当前命令行`
+                    ? globalProvider
+                      ? `网关 ${status.origin} · 全局使用 ${globalProvider.name}`
+                      : `网关 ${status.origin} · 只作用于当前命令行`
                     : "网关未启动，选择供应商后自动开启"}
               </span>
-              {pinnedId !== undefined ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 shrink-0 px-2 text-[10.5px]"
-                  disabled={busy}
-                  onClick={() => void deactivate()}
-                >
-                  停用
-                </Button>
-              ) : null}
+              <span className="flex shrink-0 items-center gap-1">
+                {/* Offered when the terminal has a pin of its own, which is
+                    what keeps it off the app-wide choice. */}
+                {pinnedId !== undefined && globalProvider ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 shrink-0 px-2 text-[10.5px]"
+                    disabled={busy}
+                    title={`取消本命令行的单独设置，跟随全局的 ${globalProvider.name}`}
+                    onClick={() => void followGlobal()}
+                  >
+                    跟随全局
+                  </Button>
+                ) : null}
+                {effectiveId !== null ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 shrink-0 px-2 text-[10.5px]"
+                    disabled={busy}
+                    onClick={() => void deactivate()}
+                  >
+                    停用
+                  </Button>
+                ) : null}
+              </span>
             </div>
           </div>
         </PopoverContent>
@@ -737,9 +934,12 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
  *  which keeps the bar quiet for anyone not using this. */
 function ProviderBadge({
   name,
+  global,
   orphaned,
 }: {
   name: string | null;
+  /** Routed by the app-wide choice rather than this terminal's own pin. */
+  global: boolean;
   orphaned: boolean;
 }) {
   if (!name && !orphaned) return null;
@@ -760,6 +960,7 @@ function ProviderBadge({
             }`}
           />
           <span className="truncate">{orphaned ? "供应商已删除" : name}</span>
+          {global && !orphaned ? <GlobalTag /> : null}
         </span>
       </TooltipTrigger>
       <TooltipContent
@@ -768,9 +969,24 @@ function ProviderBadge({
       >
         {orphaned
           ? "这个命令行仍指向一个已删除的供应商，请重新选择一个。"
-          : `这个命令行的 Claude Code 正走 ${name}，其他命令行不受影响。`}
+          : global
+            ? `所有命令行都在走 ${name}（全局），包括以后新开的。`
+            : `这个命令行的 Claude Code 正走 ${name}，其他命令行不受影响。`}
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/** Marks a relay that is the app-wide default. Small and quiet: it is on every
+ *  routed terminal, so it should not compete with the name it qualifies. */
+function GlobalTag() {
+  return (
+    <span
+      className="shrink-0 rounded bg-foreground/10 px-1 text-[9px] font-normal leading-4 text-muted-foreground"
+      title="全局供应商：所有命令行都用它"
+    >
+      全局
+    </span>
   );
 }
 

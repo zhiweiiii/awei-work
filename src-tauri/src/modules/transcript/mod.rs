@@ -186,6 +186,21 @@ pub struct Transcript {
     /// Snapshot generation. A poller compares this instead of
     /// diffing the whole conversation.
     pub revision: i64,
+    #[serde(skip)]
+    pub prompt_at: Option<i64>,
+}
+
+impl Transcript {
+    pub fn last_user_message_at(&self) -> Option<i64> {
+        if self.source == "codex" {
+            return self.prompt_at;
+        }
+        self.messages
+            .iter()
+            .filter(|message| message.role == "user" && message.at > 0)
+            .map(|message| message.at)
+            .max()
+    }
 }
 
 pub(crate) fn read_opencode(cwd: &str) -> Option<std::sync::Arc<Transcript>> {

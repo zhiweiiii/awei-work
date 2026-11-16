@@ -21,7 +21,13 @@ import {
   useSsh,
   type SshProfile,
   type ConnectionProfile,
+  type CodeProfile,
+  type SshGroup,
 } from "@/modules/ssh/store";
+import {
+  groupPrerequisite,
+  prerequisiteIsCurrent,
+} from "@/modules/ssh/groupPrerequisite";
 import "@/modules/ssh/ssh.css";
 import { isSshProfile } from "@/modules/ssh/entryTypes";
 import { useSpecialEntries } from "@/modules/ssh/SpecialEntries";
@@ -30,7 +36,18 @@ import { SshManagerDialog } from "@/modules/ssh/SshManagerDialog";
 import { invoke } from "@tauri-apps/api/core";
 
 type Session = { id: number; profile: SshProfile; closed: string | null };
-type GroupEdit = { id: string | null; name: string };
+type GroupEdit = {
+  id: string | null;
+  name: string;
+  beforeConnectCodeId: string;
+};
+type ConnectionView = "terminal" | "files";
+type Preparation = {
+  entry: ConnectionProfile;
+  group: SshGroup;
+  code: CodeProfile;
+  controller: AbortController;
+};
 
 export default function SshWorkspace({
   sidebarHost,
@@ -47,7 +64,11 @@ export default function SshWorkspace({
   const groups = useSsh((state) => state.groups);
   const ready = useSsh((state) => state.ready);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [auth, setAuth] = useState<SshProfile | null>(null);
+  const [auth, setAuth] = useState<{
+    profile: SshProfile;
+    request: number;
+    view: ConnectionView;
+  } | null>(null);
   const [view, setView] = useState<"terminal" | "files">("terminal");
   const [filesOpened, setFilesOpened] = useState<ReadonlySet<number>>(
     new Set(),
@@ -61,6 +82,9 @@ export default function SshWorkspace({
     new Set(),
   );
   const gate = useRef(false);
+  const request = useRef(0);
+  const preparation = useRef<Preparation | null>(null);
+  const [preparing, setPreparing] = useState<Preparation | null>(null);
   const mounted = useRef(true);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -71,6 +95,7 @@ export default function SshWorkspace({
     });
     return () => {
       mounted.current = false;
+      preparation.current?.controller.abort();
     };
   }, []);
   useEffect(() => {
@@ -115,42 +140,97 @@ export default function SshWorkspace({
         if (mounted.current) setBusy(false);
       });
   };
-  const openConnection = (entry: ConnectionProfile) => {
+  const openConnection = (
+    entry: ConnectionProfile,
+    targetView: ConnectionView = "terminal",
+  ) => {
     if (gate.current || busy) return;
+    const attempt = ++request.current;
     setAuth(null);
     useSsh.getState().open(entry.id);
-    if (isSshProfile(entry)) {
-      const existing = sessionsRef.current.find(
-        (session) => session.profile.id === entry.id,
-      );
-      if (existing && !existing.closed) {
-        useSsh.setState({ workspaceId: entry.id });
-        setView("terminal");
-      } else {
-        action(async () => {
+    action(async () => {
+      const state = useSsh.getState();
+      const code = groupPrerequisite(entry, state.groups, state.profiles);
+      if (code) {
+        const group = state.groups.find((group) => group.id === entry.groupId);
+        if (!group) throw new Error("连接所属分组已变更");
+        const pending: Preparation = {
+          entry,
+          group,
+          code,
+          controller: new AbortController(),
+        };
+        preparation.current = pending;
+        setPreparing(pending);
+        try {
+          await special.execute(code, pending.controller.signal);
+          const current = useSsh.getState();
+          if (
+            pending.controller.signal.aborted ||
+            !prerequisiteIsCurrent(
+              entry,
+              group,
+              code,
+              current.groups,
+              current.profiles,
+            )
+          )
+            throw new Error("前置配置已变更，请重新连接");
+        } finally {
+          if (preparation.current === pending) preparation.current = null;
+          if (mounted.current) setPreparing(null);
+        }
+      }
+      if (
+        !mounted.current ||
+        request.current !== attempt ||
+        !useSsh.getState().visible ||
+        useSsh.getState().selected !== entry.id ||
+        useSsh
+          .getState()
+          .profiles.find((profile) => profile.id === entry.id) !== entry
+      )
+        return;
+      if (isSshProfile(entry)) {
+        const existing = sessionsRef.current.find(
+          (session) => session.profile.id === entry.id,
+        );
+        if (existing && !existing.closed) {
+          useSsh.setState({ workspaceId: entry.id });
+          if (targetView === "files")
+            setFilesOpened((before) => new Set([...before, existing.id]));
+          setView(targetView);
+        } else {
           await removeSession(entry.id);
           if (
             mounted.current &&
+            request.current === attempt &&
+            useSsh
+              .getState()
+              .profiles.find((profile) => profile.id === entry.id) === entry &&
             useSsh.getState().visible &&
             useSsh.getState().selected === entry.id
           )
-            setAuth({ ...entry });
-        });
-      }
-    } else if (
-      entry.kind === "code" &&
-      !["queued", "running"].includes(special.tasks.get(entry.id)?.phase ?? "")
-    )
-      special.open(entry);
+            setAuth({
+              profile: { ...entry },
+              request: attempt,
+              view: targetView,
+            });
+        }
+      } else if (
+        entry.kind === "code" &&
+        !["queued", "running"].includes(
+          special.tasks.get(entry.id)?.phase ?? "",
+        )
+      )
+        special.open(entry);
+    });
   };
   const openFiles = (id: string) => {
-    const existing = sessionsRef.current.find(
-      (session) => session.profile.id === id && !session.closed,
-    );
-    if (!existing) return;
-    useSsh.setState({ selected: id, workspaceId: id });
-    setFilesOpened((before) => new Set([...before, existing.id]));
-    setView("files");
+    const entry = useSsh
+      .getState()
+      .profiles.find((profile) => profile.id === id);
+    if (entry && isSshProfile(entry)) openConnection(entry, "files");
   };
   const stopCode = (id: string) => {
     void invoke("ssh_cancel_special", { id }).catch((error: unknown) =>
@@ -158,8 +238,25 @@ export default function SshWorkspace({
     );
   };
   useEffect(() => {
-    if (!visible) setAuth(null);
-  }, [visible]);
+    if (!visible) {
+      request.current++;
+      setAuth(null);
+    }
+    const pending = preparation.current;
+    if (
+      pending &&
+      (!visible ||
+        selected !== pending.entry.id ||
+        !prerequisiteIsCurrent(
+          pending.entry,
+          pending.group,
+          pending.code,
+          groups,
+          profiles,
+        ))
+    )
+      pending.controller.abort();
+  }, [visible, selected, groups, profiles]);
   return (
     <>
       {sidebarHost &&
@@ -239,12 +336,19 @@ export default function SshWorkspace({
                             key={entry.id}
                             code={entry.kind === "code"}
                             connected={!!linked}
-                            connecting={auth?.id === entry.id}
+                            connecting={
+                              auth?.profile.id === entry.id ||
+                              preparing?.entry.id === entry.id
+                            }
                             running={running}
                             disabled={busy}
                             onOpen={() => openConnection(entry)}
                             onFiles={() => openFiles(entry.id)}
-                            onCancel={() => setAuth(null)}
+                            onCancel={() => {
+                              request.current++;
+                              preparation.current?.controller.abort();
+                              setAuth(null);
+                            }}
                             onDisconnect={() =>
                               action(() => removeSession(entry.id))
                             }
@@ -265,7 +369,8 @@ export default function SshWorkspace({
                                 {entry.name}
                               </span>
                               <span className="shrink-0 text-[10px] text-muted-foreground">
-                                {auth?.id === entry.id
+                                {auth?.profile.id === entry.id ||
+                                preparing?.entry.id === entry.id
                                   ? "连接中"
                                   : entry.kind === "code"
                                     ? running
@@ -283,6 +388,26 @@ export default function SshWorkspace({
                 </section>
               ))}
             </div>
+            {preparing && (
+              <div className="grid shrink-0 gap-1 border-t border-border px-3 py-2">
+                <p role="status" className="whitespace-pre-wrap break-words">
+                  正在准备 {preparing.entry.name}：{preparing.code.name}
+                  {(() => {
+                    const task = special.tasks.get(preparing.code.id);
+                    return task && ["queued", "running"].includes(task.phase)
+                      ? `\n${task.message}`
+                      : "";
+                  })()}
+                </p>
+                <button
+                  type="button"
+                  className="ssh-button justify-self-start"
+                  onClick={() => preparing.controller.abort()}
+                >
+                  取消连接
+                </button>
+              </div>
+            )}
             {profile?.kind === "code" &&
               special.tasks.get(profile.id)?.message && (
                 <p
@@ -364,7 +489,11 @@ export default function SshWorkspace({
         onOpenChange={setManagerOpen}
         disabled={busy}
         onEditGroup={(group) =>
-          setGroupEdit({ id: group?.id ?? null, name: group?.name ?? "" })
+          setGroupEdit({
+            id: group?.id ?? null,
+            name: group?.name ?? "",
+            beforeConnectCodeId: group?.beforeConnectCodeId ?? "",
+          })
         }
         onDeleteGroup={setDeleteGroup}
         onDeleteProfile={setDeleting}
@@ -379,25 +508,36 @@ export default function SshWorkspace({
       {special.dialogs}
       {auth && (
         <AuthDialog
-          key={auth.id}
-          profile={auth}
+          key={`${auth.profile.id}:${auth.request}`}
+          profile={auth.profile}
           autoConnect
-          onCancel={() => setAuth(null)}
+          onCancel={() => {
+            request.current++;
+            setAuth(null);
+          }}
           onConnected={(id) => {
             if (
               !mounted.current ||
+              request.current !== auth.request ||
               !useSsh.getState().visible ||
-              useSsh.getState().selected !== auth.id
+              useSsh.getState().selected !== auth.profile.id
             ) {
               void disconnect(id);
               return;
             }
             setSessions((before) => [
-              ...before.filter((session) => session.profile.id !== auth.id),
-              { id, profile: auth, closed: null },
+              ...before.filter(
+                (session) => session.profile.id !== auth.profile.id,
+              ),
+              { id, profile: auth.profile, closed: null },
             ]);
-            useSsh.setState({ selected: auth.id, workspaceId: auth.id });
-            setView("terminal");
+            useSsh.setState({
+              selected: auth.profile.id,
+              workspaceId: auth.profile.id,
+            });
+            if (auth.view === "files")
+              setFilesOpened((before) => new Set([...before, id]));
+            setView(auth.view);
             setAuth(null);
           }}
         />
@@ -410,10 +550,10 @@ export default function SshWorkspace({
       >
         <DialogContent className="gap-4">
           <DialogTitle>
-            {groupEdit?.id ? "重命名 SSH 分组" : "新建 SSH 分组"}
+            {groupEdit?.id ? "设置 SSH 分组" : "新建 SSH 分组"}
           </DialogTitle>
           <DialogDescription>
-            SSH 连接分组与本机项目分组独立。
+            可选择连接前要执行的动态代码，例如该分组依赖的 VPN。
           </DialogDescription>
           <form
             className="grid gap-3"
@@ -422,17 +562,38 @@ export default function SshWorkspace({
               if (!groupEdit?.name.trim()) return;
               const edit = groupEdit;
               action(async () => {
+                if (
+                  edit.beforeConnectCodeId &&
+                  !useSsh
+                    .getState()
+                    .profiles.some(
+                      (profile) =>
+                        profile.id === edit.beforeConnectCodeId &&
+                        profile.kind === "code",
+                    )
+                )
+                  throw new Error("请选择有效的动态代码连接");
                 await updateSsh((config) => ({
                   ...config,
                   groups: edit.id
                     ? config.groups.map((group) =>
                         group.id === edit.id
-                          ? { ...group, name: edit.name.trim() }
+                          ? {
+                              ...group,
+                              name: edit.name.trim(),
+                              beforeConnectCodeId:
+                                edit.beforeConnectCodeId || undefined,
+                            }
                           : group,
                       )
                     : [
                         ...config.groups,
-                        { id: crypto.randomUUID(), name: edit.name.trim() },
+                        {
+                          id: crypto.randomUUID(),
+                          name: edit.name.trim(),
+                          beforeConnectCodeId:
+                            edit.beforeConnectCodeId || undefined,
+                        },
                       ],
                 }));
                 if (mounted.current) setGroupEdit(null);
@@ -452,6 +613,43 @@ export default function SshWorkspace({
                 )
               }
             />
+            <label className="ssh-field text-xs">
+              连接前执行
+              <select
+                className="ssh-input"
+                value={groupEdit?.beforeConnectCodeId ?? ""}
+                disabled={busy}
+                onChange={(event) =>
+                  setGroupEdit((before) =>
+                    before
+                      ? { ...before, beforeConnectCodeId: event.target.value }
+                      : before,
+                  )
+                }
+              >
+                <option value="">不执行</option>
+                {groupEdit?.beforeConnectCodeId &&
+                  !profiles.some(
+                    (profile) =>
+                      profile.kind === "code" &&
+                      profile.id === groupEdit.beforeConnectCodeId,
+                  ) && (
+                    <option value={groupEdit.beforeConnectCodeId}>
+                      前置代码已删除，请重新选择
+                    </option>
+                  )}
+                {profiles
+                  .filter((profile) => profile.kind === "code")
+                  .map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+              </select>
+              <span className="text-muted-foreground">
+                打开组内连接前执行，成功后继续；失败或取消则不连接。展开分组不会执行。
+              </span>
+            </label>
             <button
               type="submit"
               className="ssh-button justify-self-end"
@@ -487,6 +685,13 @@ export default function SshWorkspace({
               if (!deleting) return;
               const id = deleting.id;
               action(async () => {
+                const referencing = useSsh
+                  .getState()
+                  .groups.filter((group) => group.beforeConnectCodeId === id);
+                if (referencing.length)
+                  throw new Error(
+                    `请先修改分组 ${referencing.map((group) => group.name).join("、")} 的前置代码，再删除此连接`,
+                  );
                 if (deleting.kind === "web" || deleting.kind === "code")
                   await invoke("ssh_cancel_special", { id });
                 await removeSession(id);

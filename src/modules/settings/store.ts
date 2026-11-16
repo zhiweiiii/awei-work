@@ -237,7 +237,11 @@ export const DEFAULT_PREFERENCES: Preferences = {
   agentKeyPassthrough: true,
   petOpen: false,
   compactFolders: true,
-  claudeGateway: { providers: [], current: null } as ClaudeGatewayConfig,
+  claudeGateway: {
+    providers: [],
+    current: null,
+    global: null,
+  } as ClaudeGatewayConfig,
   explorerGitDecorations: true,
   protectedBranches: ["main", "master", "develop"],
   terminalWebglEnabled: true,
@@ -575,12 +579,27 @@ export type ClaudeProvider = {
   apiFormat: ClaudeApiFormat;
   authStyle: ClaudeAuthStyle;
   models: ClaudeModelRoutes;
+  /** The model's real context window in tokens, or null to leave Claude Code
+   *  to its own guess. It guesses 200k for a model name it does not know, then
+   *  only compacts after the relay has refused the request for being too long,
+   *  which is what `400 ... maximum context length` means. */
+  contextWindow: number | null;
 };
 
 export type ClaudeGatewayConfig = {
   providers: ClaudeProvider[];
   /** Provider id, or null when none is selected and the gateway stays closed. */
   current: string | null;
+  /** Provider id every new command line is routed through automatically, or
+   *  null for the default of routing nothing.
+   *
+   *  Split from `current`, which only names the entry the panel treats as
+   *  selected: turning everything global must survive a terminal-local switch
+   *  away from it, and turning it off must not leave the relay silently chosen
+   *  for the next shell. Persisted, unlike a per-terminal pin, because "every
+   *  shell from now on" is exactly the kind of answer that has to outlive the
+   *  session. */
+  global: string | null;
 };
 
 type LegacyAgentEnvPreset = {
@@ -606,7 +625,7 @@ function migrateAgentEnvPresets(
   presets: LegacyAgentEnvPreset[] | undefined,
 ): ClaudeGatewayConfig {
   if (!Array.isArray(presets) || !presets.length)
-    return { providers: [], current: null };
+    return { providers: [], current: null, global: null };
   const providers = presets
     .filter(
       (preset) =>
@@ -623,10 +642,11 @@ function migrateAgentEnvPresets(
       apiFormat: "anthropic" as const,
       authStyle: "bearer" as const,
       models: { ...EMPTY_MODEL_ROUTES, default: preset.model ?? "" },
+      contextWindow: null,
     }));
   return normalizePreference(
     "claudeGateway",
-    { providers, current: null },
+    { providers, current: null, global: null },
     DEFAULT_PREFERENCES,
   ) as ClaudeGatewayConfig;
 }

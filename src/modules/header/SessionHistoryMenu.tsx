@@ -19,7 +19,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 
 type Session = {
-  agent: "claude" | "codex";
+  /** `dsh` sessions have no terminal resume: they open in the dsh web page. */
+  agent: "claude" | "codex" | "dsh";
   id: string;
   title: string;
   updatedAt: number;
@@ -28,13 +29,21 @@ type Session = {
 const AGENT_LABEL: Record<Session["agent"], string> = {
   claude: "Claude Code",
   codex: "Codex",
+  dsh: "dsh",
 };
 
-/** What each agent's own resume takes. Typed into the shell as written. */
-function resumeCommand(session: Session): string {
-  return session.agent === "claude"
-    ? `claude --resume ${session.id}`
-    : `codex resume ${session.id}`;
+const AGENT_DOT: Record<Session["agent"], string> = {
+  claude: "bg-orange-500",
+  codex: "bg-sky-500",
+  dsh: "bg-indigo-500",
+};
+
+/** What each agent's own resume takes. Typed into the shell as written. dsh
+ *  has no such thing, so only the two terminal agents are resumable here. */
+function resumeCommand(session: Session): string | null {
+  if (session.agent === "claude") return `claude --resume ${session.id}`;
+  if (session.agent === "codex") return `codex resume ${session.id}`;
+  return null;
 }
 
 function ageLabel(updatedAt: number): string {
@@ -47,11 +56,15 @@ function ageLabel(updatedAt: number): string {
 }
 
 type Props = {
-  /** Directory the list is scoped to. Both agents key their history by it. */
+  /** Directory the list is scoped to. Every agent keys its history by it. */
   cwd: string | null;
   /** Runs a command in the terminal being shown. Null when there is none,
    *  which is when there is nothing to resume into. */
   onRun: ((command: string) => void) | null;
+  /** Opens the dsh web page, starting the server first if it is not running.
+   *  dsh has no terminal surface, so its conversations do not go through a
+   *  shell at all. Null while the list has no directory to scope them to. */
+  onOpenDsh: (() => void) | null;
 };
 
 /**
@@ -65,7 +78,7 @@ type Props = {
  * read per session, cheap but not free, and an unopened menu should cost
  * nothing.
  */
-export function SessionHistoryMenu({ cwd, onRun }: Props) {
+export function SessionHistoryMenu({ cwd, onRun, onOpenDsh }: Props) {
   const workspace = LOCAL_WORKSPACE;
   const scopeKey = workspaceScopeKey(workspace);
   const [open, setOpen] = useState(false);
@@ -116,13 +129,20 @@ export function SessionHistoryMenu({ cwd, onRun }: Props) {
   const loading = open && sessions === null;
 
   const resume = (session: Session) => {
+    const command = resumeCommand(session);
+    // A dsh conversation cannot be resumed from a shell. Its row still opens
+    // the web page, which is the only place that conversation exists.
+    if (command === null) {
+      if (currentWorkspaceScopeKey() === scopeKey) onOpenDsh?.();
+      return;
+    }
     if (
       !onRun ||
       currentWorkspaceScopeKey() !== scopeKey ||
       !sessions?.includes(session)
     )
       return;
-    onRun(resumeCommand(session));
+    onRun(command);
   };
 
   return (
@@ -158,6 +178,14 @@ export function SessionHistoryMenu({ cwd, onRun }: Props) {
           <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
           新对话 Codex
         </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!onOpenDsh}
+          onSelect={() => onOpenDsh?.()}
+          title="在 dsh 的网页界面里开始，需要时自动启动 dsh web"
+        >
+          <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
+          新对话 dsh
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
           {cwd ? `${cwd} 的历史会话` : "没有命令行"}
@@ -187,7 +215,7 @@ export function SessionHistoryMenu({ cwd, onRun }: Props) {
         {sessions?.map((session) => (
           <DropdownMenuItem
             key={`${session.agent}:${session.id}`}
-            disabled={!onRun}
+            disabled={session.agent === "dsh" ? !onOpenDsh : !onRun}
             onSelect={() => resume(session)}
             className="flex flex-col items-start gap-0.5 py-1.5"
           >
@@ -197,9 +225,7 @@ export function SessionHistoryMenu({ cwd, onRun }: Props) {
             <span className="flex w-full items-center gap-1.5 text-[10px] text-muted-foreground">
               <span
                 aria-hidden
-                className={`size-1.5 shrink-0 rounded-full ${
-                  session.agent === "claude" ? "bg-orange-500" : "bg-sky-500"
-                }`}
+                className={`size-1.5 shrink-0 rounded-full ${AGENT_DOT[session.agent]}`}
               />
               {AGENT_LABEL[session.agent]}
               <span className="ml-auto shrink-0">
@@ -209,7 +235,7 @@ export function SessionHistoryMenu({ cwd, onRun }: Props) {
           </DropdownMenuItem>
         ))}
 
-        {sessions && sessions.length > 0 && !onRun ? (
+        {sessions && sessions.length > 0 && !onRun && !onOpenDsh ? (
           <>
             <DropdownMenuSeparator />
             <div className="px-2 py-1.5 text-[10px] text-muted-foreground">

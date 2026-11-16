@@ -107,6 +107,8 @@ export function TabBar({
   const drag = useRef<{
     pointerId: number;
     startX: number;
+    x: number;
+    y: number;
     fromId: number;
     active: boolean;
   } | null>(null);
@@ -114,8 +116,12 @@ export function TabBar({
     null,
   );
   const dropGapRef = useRef<number | null>(null);
+  const scrollFrame = useRef(0);
+  const suppressClick = useRef(false);
   const savedUserSelectRef = useRef<string | null>(null);
   const releaseDrag = useCallback(() => {
+    cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = 0;
     drag.current = null;
     dropGapRef.current = null;
     const capture = captureRef.current;
@@ -192,7 +198,16 @@ export function TabBar({
     }
   }, [pill, pillReady]);
 
-  const gapAtX = (clientX: number) => {
+  const gapAtPoint = (clientX: number, clientY: number) => {
+    const bounds = scrollRef.current?.getBoundingClientRect();
+    if (
+      !bounds ||
+      clientX < bounds.left ||
+      clientX > bounds.right ||
+      clientY < bounds.top ||
+      clientY > bounds.bottom
+    )
+      return null;
     const els = Array.from(
       scrollRef.current?.querySelectorAll<HTMLElement>("[data-tab-id]") ?? [],
     );
@@ -203,10 +218,49 @@ export function TabBar({
     return els.length;
   };
 
-  const endDrag = () => {
+  const endDrag = useCallback(() => {
     releaseDrag();
     setDraggingId(null);
     setDropGap(null);
+  }, [releaseDrag]);
+
+  useEffect(() => {
+    const cancel = () => endDrag();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !drag.current?.active) return;
+      event.preventDefault();
+      event.stopPropagation();
+      endDrag();
+    };
+    window.addEventListener("blur", cancel);
+    window.addEventListener("keydown", keydown, true);
+    return () => {
+      window.removeEventListener("blur", cancel);
+      window.removeEventListener("keydown", keydown, true);
+    };
+  }, [endDrag]);
+
+  const scrollDrag = () => {
+    scrollFrame.current = 0;
+    const current = drag.current;
+    const container = scrollRef.current;
+    if (!current?.active || !container) return;
+    const gap = gapAtPoint(current.x, current.y);
+    if (gap === null) return;
+    const bounds = container.getBoundingClientRect();
+    const speed =
+      current.x < bounds.left + 28
+        ? -10
+        : current.x > bounds.right - 28
+          ? 10
+          : 0;
+    if (!speed) return;
+    const previous = container.scrollLeft;
+    container.scrollLeft += speed;
+    dropGapRef.current = gapAtPoint(current.x, current.y);
+    setDropGap(dropGapRef.current);
+    if (container.scrollLeft !== previous)
+      scrollFrame.current = requestAnimationFrame(scrollDrag);
   };
 
   const srcIndex = tabs.findIndex((tab) => tab.id === draggingId);
@@ -241,6 +295,13 @@ export function TabBar({
   return (
     <div
       ref={scrollRef}
+      onDragStartCapture={(event) => event.preventDefault()}
+      onClickCapture={(event) => {
+        if (!suppressClick.current || event.detail === 0) return;
+        suppressClick.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       data-tauri-drag-region
       className="min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
@@ -320,13 +381,16 @@ export function TabBar({
                   data-tab-id={t.id}
                   data-tab-active={isActive ? "true" : undefined}
                   onPointerDown={(e) => {
-                    if (e.button !== 0) return;
+                    if (e.button !== 0 || !e.isPrimary) return;
                     if (drag.current) return;
+                    suppressClick.current = false;
                     if ((e.target as HTMLElement).closest("[data-no-drag]"))
                       return;
                     drag.current = {
                       pointerId: e.pointerId,
                       startX: e.clientX,
+                      x: e.clientX,
+                      y: e.clientY,
                       fromId: t.id,
                       active: false,
                     };
@@ -334,31 +398,45 @@ export function TabBar({
                       element: e.currentTarget,
                       pointerId: e.pointerId,
                     };
-                    e.currentTarget.setPointerCapture(e.pointerId);
+                    try {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    } catch {
+                      endDrag();
+                    }
                   }}
                   onPointerMove={(e) => {
                     if (!onReorder) return;
                     const st = drag.current;
                     if (!st || st.pointerId !== e.pointerId) return;
+                    if (!(e.buttons & 1)) {
+                      endDrag();
+                      return;
+                    }
+                    st.x = e.clientX;
+                    st.y = e.clientY;
                     if (!st.active) {
                       if (Math.abs(e.clientX - st.startX) < 4) return;
                       st.active = true;
+                      suppressClick.current = true;
                       setDraggingId(st.fromId);
                       savedUserSelectRef.current =
                         document.body.style.userSelect;
                       document.body.style.userSelect = "none";
                     }
                     e.preventDefault();
-                    const gap = gapAtX(e.clientX);
+                    const gap = gapAtPoint(e.clientX, e.clientY);
                     dropGapRef.current = gap;
                     setDropGap(gap);
+                    if (!scrollFrame.current)
+                      scrollFrame.current = requestAnimationFrame(scrollDrag);
                   }}
                   onPointerUp={(e) => {
                     const st = drag.current;
                     if (!st || st.pointerId !== e.pointerId) return;
-                    if (st.active && dropGapRef.current !== null) {
-                      onReorder?.(st.fromId, dropGapRef.current);
-                    } else if (st && !st.active) {
+                    const gap = gapAtPoint(e.clientX, e.clientY);
+                    if (st.active && gap !== null) {
+                      onReorder?.(st.fromId, gap);
+                    } else if (!st.active) {
                       onSelect(t.id);
                     }
                     endDrag();
@@ -397,6 +475,8 @@ export function TabBar({
                       ? "text-foreground dark:text-foreground"
                       : "text-muted-foreground hover:text-foreground/80 dark:text-muted-foreground",
                     draggingId === t.id && "opacity-50",
+                    onReorder && "touch-none cursor-grab",
+                    draggingId === t.id && "cursor-grabbing",
                     compact
                       ? "px-1.5!"
                       : tabs.length === 1

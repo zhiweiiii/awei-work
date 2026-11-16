@@ -4,15 +4,17 @@ awei-work 使用用户已安装并登录的 CLI，模型权限和费用由对应
 
 ## 会话历史与恢复
 
-顶部菜单提供新对话 Claude Code/Codex，并把当前项目目录的历史合并，按最后活动时间排序。点记录通过正常提交入口执行 `claude --resume <UUID>` 或 `codex resume <UUID>`，不是只把文字插入输入栏。
+顶部菜单提供新对话 Claude Code/Codex/dsh，并把当前项目目录的历史合并，按最后活动时间排序。点 Claude/Codex 记录通过正常提交入口执行 `claude --resume <UUID>` 或 `codex resume <UUID>`，不是只把文字插入输入栏。dsh 没有终端界面，菜单里的"新对话 dsh"和 dsh 记录都打开 dsh 的网页界面：dsh 已在跑就直接用，没跑就启动 `dsh web --no-open`（未全局安装时回退 `npx @deepseek-ai/dsh`），读完它打印的带令牌 URL 后开一个预览标签页。令牌只在那行输出里，所以打开的是那行 URL，不是裸端口。服务端由本进程持有，退出时连同子进程一起结束；端口已被占用时打开该端口首页而不是试图再绑一次。
+
+dsh 的会话从 `~/.dsh/sessions/<项目键>/<会话>/session.v4.jsonl.zstd` 读，优先 v4。日志是逐帧拼接的 zstd（每次 flush 一帧），必须逐帧解压后拼接才能读到第一条之后的全部内容；只解第一帧只能拿到会话头。标题优先取 `~/.dsh/storages/session_projcache.json`（服务端持续写入），没有就取日志里的 `session/title`，再没有取第一条真实用户消息，过滤 harness 注入的提醒和运行时上下文。项目键按 dsh 自己的规则编码（分隔符折叠成 `-`，非法字符写成 `~` 加四位十六进制），写错只会读不到，不会读错。
 
 Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sessions/<年>/<月>/<日>/` 读取。Claude 目录转义可能碰撞，Codex 日期也不是项目归属；必须逐文件核对真实 cwd，不能只看路径。标题过滤环境及指令前言，无法找到真实标题就显示无标题，不猜。
 
 每文件头部读取上限 192 KB；扫描结果缓存 2 秒/最多 32 目录，头部缓存最多 512 文件。扫描有项数、文件数、深度和时间预算，超限返回错误而非用部分结果判断唯一性。菜单只在打开时加载，回复绑定目录/环境/打开代次。历史读取 Windows 用户目录。
 
-自动恢复最近 5 个非私密项目，持久化 `lastUsedAt` 和 `lastAgentSession`。身份由对应 PTY 的 agent 运行代次、固定记录文件、UUID/cwd 核对确认，不以最新文件代替当前会话。运行后约 1 秒检查，随后每 15 秒及退出保存时检查最近项目；没有 agent 时不周期读历史。
+自动恢复最后向 AI 发消息的 5 个非私密、未收纳项目，按 `lastAgentMessageAt` 选择，默认激活最新的项目。`lastUsedAt` 仍记录访问，但不参与 AI 最近项目判断。身份由对应 PTY 的 agent 运行代次、固定记录文件、UUID/cwd 核对确认，不以最新文件代替当前会话。消息时间来自真实会话：Codex 只认 `event_msg/user_message`，启动注入的项目说明与环境上下文不计入；Claude 沿用 human 消息解析，排除工具结果、meta 和压缩摘要。AI 输出或文件 mtime 不作为用户操作时间。运行及阶段变化后约 1 秒检查，随后每 15 秒及退出保存时检查所有非私密、未收纳项目的分屏，而不是先按访问时间取5个；没有 agent 时不周期读历史。只持久化消息时间及会话身份，不另存正文。
 
-启动只恢复每个项目上次活动面板的一个 agent。验证确切记录后等待 PTY 和提示符就绪，预算 20 秒；隐藏面板临时绑定现有渲染器，不抢焦点。项目/面板关闭、目录改变、已有任务或用户已开始输入草稿均取消。记录缺失或超时不会新建对话、不会重放消息。旧版本未保存 UUID，升级后先运行一次会话并正常保存。
+启动只恢复每个项目最近发消息分屏的一个 agent。会话检查结果按原面板树和项目身份合并，实时不切换分屏，退出保存才记下恢复面板；较旧检查不能覆盖新消息时间。验证确切记录后等待 PTY 和提示符就绪，预算 20 秒；隐藏面板临时绑定现有渲染器，不抢焦点。项目/面板关闭、目录改变、已有任务或用户已开始输入草稿均取消。记录缺失或超时不会新建对话、不会重放消息。旧配置若已有 UUID/cwd，以最多4个并行读取补足该确切会话的消息时间；缺失或不支持的记录保持未知，不按访问时间凑满5个。旧版本未保存 UUID 时，升级后先运行一次会话并正常保存。
 
 ## 桌面宠物
 
@@ -80,10 +82,12 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 `gateway/` 把 Anthropic Messages 转为兼容 OpenAI Chat Completions 或转发 Anthropic。仅监听 `127.0.0.1`，开发 34267、正式 34266，有本地令牌认证；配置只保存，真正使用该网关的 shell 启动时才监听。停止等待 socket 释放后才允许重启。
 
-供应商按 leaf 的 `/p/<providerId>` 固定，不用全局选择改道其他终端；删除供应商返回失败，不默默换到别家。pin 不持久化、不自动继承。切换先检查前台任务，保留 cwd 重启，失败恢复 pin；探针是真实小请求，可能有费用。
+供应商按 leaf 的 `/p/<providerId>` 固定：终端自己的选择优先，没选时用全局选择。全局是持久偏好（`claudeGateway.global`），与只表示"面板里选中项"的 `current` 分开：全局打开后清掉空闲终端的 pin 并重启它们，运行中的终端和不设 pin 的终端保持不动，新开终端一律继承。取消全局只写偏好，不动已在跑的终端。终端可以显式停用来单独退出全局，面板里再用"跟随全局"撤回。删除供应商返回失败，不默默换到别家，并同时清掉指向它的全局选择。pin 不持久化。切换先检查前台任务，保留 cwd 重启，失败恢复 pin；探针是真实小请求，可能有费用。
 
-环境在 spawn 时注入 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`，清除冲突的 `ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`，不敲入终端历史。模型按 opus/sonnet/haiku 路由，剥除 `[1m]`。
+环境在 spawn 时注入 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`，清除冲突的 `ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`，不敲入终端历史。供应商可填上下文窗口，有值时注入 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`，否则清除该变量。这一项是必须的：Claude Code 只认自家模型窗口，遇到中转站的模型名按 200k 处理，压缩触发得太晚，输入加输出超过真实上限后上游直接返回 `400 ... maximum context length`。填模型的真实上限（OpenCode Go 预设填 128000）后按正确尺寸压缩。Claude 的 opus/sonnet/haiku 请求先走角色配置，再回退默认项；直接请求已配置的非 Claude 角色上游模型名时保留该名称，避免旧默认项覆盖显式选择。其他别名仍走默认，默认也为空时原样转发。请求名和映射结果都剥除 `[1m]`。客户端显示的模型名与实际转发目标可能不同，以日志 `gateway: 供应商 请求模型 -> 上游模型` 核对。
 
 转换核心 `convert.rs`、`stream.rs`、`sse.rs` 不碰 IO。SSE 处理跨 chunk UTF-8，最终只发一次 message_delta；include_usage、工具参数稳定序列化保留，上游错误/中断不补成功结束。reqwest 在 runtime 内构建/send，并主动安装 ring provider，不能依赖更新插件先初始化。
 
 上游禁止重定向，有 64 MiB 响应、4 MiB SSE 事件及工具数量/参数预算。服务商特有头只按对应 host 加入；OpenCode Zen 的会话头使用稳定会话 ID。不增加自动故障转移、熔断或用量数据库。
+
+OpenCode Go 预设使用当前官方的 `https://opencode.ai/inference/go/openai/v1`：默认、Sonnet 和 Haiku 为 `deepseek-v4.1-flash`，Opus 为 `deepseek-v4-pro`。这只影响新建预设，不覆盖已保存供应商或运行中的终端配置。模型是否可用需以账号的 `/models` 清单及上游响应为准，参见 [Go 官方模型表](https://opencode.ai/docs/console/go/)。

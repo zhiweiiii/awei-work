@@ -175,16 +175,31 @@ pub fn gateway_status() -> Result<Status, String> {
 /// history, and it cannot apply to a Claude Code that is already running
 /// anyway. Starts the listener if it is not up, because a shell is about to
 /// depend on it.
-pub fn shell_env(provider_id: &str) -> Option<(String, String)> {
+pub struct ShellEnv {
+    pub base_url: String,
+    pub token: String,
+    /// The model's real context window, when the provider declares one.
+    ///
+    /// Claude Code sizes auto-compaction from what it believes a model's window
+    /// is. It only knows Anthropic's own models: for a relay's
+    /// `deepseek-v4-flash` and the like it assumes 200k, so it lets a
+    /// conversation grow to that size and the relay then rejects the request
+    /// once input plus output passes its real, smaller limit. Passing the
+    /// window explicitly makes the client compact at the right size instead.
+    pub context_window: Option<u32>,
+}
+
+pub fn shell_env(provider_id: &str) -> Option<ShellEnv> {
     let provider = config::provider_by_id(provider_id)?;
     if !RUNNING.load(Ordering::Acquire) && start().is_err() {
         return None;
     }
     let port = BOUND_PORT.load(Ordering::Acquire);
-    Some((
-        format!("http://{BIND_ADDR}:{port}{PIN_PREFIX}{}", provider.id),
-        config::token().ok()?,
-    ))
+    Some(ShellEnv {
+        base_url: format!("http://{BIND_ADDR}:{port}{PIN_PREFIX}{}", provider.id),
+        token: config::token().ok()?,
+        context_window: provider.context_window,
+    })
 }
 
 /// Replace the provider list and selection. The frontend owns persistence, so

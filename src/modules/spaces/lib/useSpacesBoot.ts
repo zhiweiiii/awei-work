@@ -14,7 +14,11 @@ import {
   saveSpacesList,
 } from "./store";
 import { useSpaces } from "./useSpaces";
-import { prepareProjectRestore } from "@/modules/spaces/lib/projectRestore";
+import {
+  prepareProjectRestore,
+  hydrateProjectMessageTimes,
+  recentProjects,
+} from "@/modules/spaces/lib/projectRestore";
 
 type Params = {
   ready: boolean;
@@ -94,7 +98,7 @@ export function useSpacesBoot({
           return;
         }
 
-        const restored: Tab[] = [];
+        let restored: Tab[] = [];
         for (const space of spaces) {
           const st = states.get(space.id);
           if (!st) continue;
@@ -121,17 +125,20 @@ export function useSpacesBoot({
         if (!mounted.current) return;
 
         const initialActiveIndex: Record<string, number> = {};
+        restored = await hydrateProjectMessageTimes(restored, (saved) =>
+          native.agentSessionLastMessageAt(saved.cwd, saved.agent, saved.id),
+        );
+        if (!mounted.current) return;
         for (const [id, st] of states)
           initialActiveIndex[id] = st.activeTabIndex;
-        useSpaces.getState().hydrate(spaces, active, initialActiveIndex);
-
         const inActive = restored.filter((t) => t.spaceId === active);
         const idx = states.get(active)?.activeTabIndex ?? 0;
-        const activeTab = inActive[idx] ?? inActive[0];
-        replaceTabs(
-          prepareProjectRestore(restored, activeTab?.id ?? 0),
-          activeTab?.id ?? 0,
-        );
+        const activeTab =
+          recentProjects(restored)[0] ?? inActive[idx] ?? inActive[0];
+        const restoredSpace = activeTab?.spaceId ?? active;
+        setActiveSpaceForNewTabs(restoredSpace);
+        useSpaces.getState().hydrate(spaces, restoredSpace, initialActiveIndex);
+        replaceTabs(prepareProjectRestore(restored), activeTab?.id ?? 0);
       } catch (e) {
         console.error("[awei-work] spaces boot failed:", e);
         if (mounted.current) errorToast("加载工作区失败，原始数据已保留", e);

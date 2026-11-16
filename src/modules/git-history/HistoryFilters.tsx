@@ -47,8 +47,13 @@ export type HistoryFilterState = {
   serverActive: boolean;
 };
 
-export function useHistoryFilters(): HistoryFilterState {
-  const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+export function useHistoryFilters(
+  initialBranch: string | null = null,
+): HistoryFilterState {
+  const [filters, setFilters] = useState<HistoryFilters>(() => ({
+    ...EMPTY_HISTORY_FILTERS,
+    branch: initialBranch,
+  }));
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({});
   const updateFilters = useCallback((patch: Partial<HistoryFilters>) => {
     setFilters((current) => ({ ...current, ...patch }));

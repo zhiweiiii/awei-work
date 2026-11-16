@@ -9,15 +9,12 @@ import {
 } from "@/components/ui/dialog";
 import { useSsh } from "@/modules/ssh/store";
 import type { CodeProfile } from "@/modules/ssh/entryTypes";
+import {
+  type CodeTask,
+  runCodePrerequisite,
+} from "@/modules/ssh/runCodePrerequisite";
 
 type Special = CodeProfile;
-type CodeTask = {
-  taskId: string;
-  id: string;
-  phase: string;
-  message: string;
-};
-
 export function useSpecialEntries(onError: (error: string) => void) {
   const ready = useSsh((state) => state.ready);
   const [opening, setOpening] = useState<string | null>(null);
@@ -27,8 +24,20 @@ export function useSpecialEntries(onError: (error: string) => void) {
   const latest = useRef(new Map<string, string>());
   const gate = useRef(false);
   const live = useRef(true);
+  const passwordRequest = useRef<{
+    profile: CodeProfile;
+    resolve: (value: string) => void;
+    reject: (error: Error) => void;
+  } | null>(null);
   const errorRef = useRef(onError);
   errorRef.current = onError;
+  useEffect(
+    () => () => {
+      passwordRequest.current?.reject(new Error("前置执行已关闭"));
+      passwordRequest.current = null;
+    },
+    [],
+  );
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
@@ -113,12 +122,73 @@ export function useSpecialEntries(onError: (error: string) => void) {
   const open = (profile: Special) => {
     void run(profile);
   };
+  const execute = async (profile: CodeProfile, signal: AbortSignal) => {
+    if (gate.current || passwordFor)
+      throw new Error("另一个代码入口正在启动，请先完成或取消");
+    gate.current = true;
+    try {
+      let password: string | undefined;
+      if (profile.passwordMode === "ask") {
+        password = await new Promise<string>((resolve, reject) => {
+          const request = {
+            profile,
+            resolve: (value: string) => {
+              signal.removeEventListener("abort", abort);
+              resolve(value);
+            },
+            reject: (error: Error) => {
+              signal.removeEventListener("abort", abort);
+              reject(error);
+            },
+          };
+          const abort = () => {
+            if (passwordRequest.current !== request) return;
+            passwordRequest.current = null;
+            if (live.current) {
+              setPasswordFor(null);
+              setSecret("");
+            }
+            request.reject(new Error("已取消分组前置执行"));
+          };
+          passwordRequest.current = request;
+          signal.addEventListener("abort", abort, { once: true });
+          if (signal.aborted) abort();
+          else {
+            setSecret("");
+            setPasswordFor(profile);
+          }
+        });
+      }
+      await runCodePrerequisite(profile.id, signal, {
+        subscribe: (accept) =>
+          listen<CodeTask>("ssh:code-task", ({ payload }) => accept(payload)),
+        start: () => {
+          if (
+            useSsh
+              .getState()
+              .profiles.find((item) => item.id === profile.id) !== profile
+          )
+            throw new Error("前置代码已变更，请重新连接");
+          return invoke<string | null>("ssh_open_special", {
+            entry: profile,
+            secret: password ?? null,
+          });
+        },
+        cancel: (taskId) =>
+          invoke("ssh_cancel_special", { id: profile.id, taskId }),
+      });
+    } finally {
+      gate.current = false;
+    }
+  };
   const dialogs = (
     <>
       <Dialog
         open={passwordFor !== null}
         onOpenChange={(next) => {
           if (!next && !opening) {
+            passwordRequest.current?.reject(new Error("已取消分组前置执行"));
+            passwordRequest.current = null;
             setPasswordFor(null);
             setSecret("");
           }
@@ -133,7 +203,14 @@ export function useSpecialEntries(onError: (error: string) => void) {
             className="grid gap-3 text-xs"
             onSubmit={(event) => {
               event.preventDefault();
-              if (passwordFor) void run(passwordFor, secret);
+              if (!passwordFor) return;
+              const request = passwordRequest.current;
+              if (request?.profile === passwordFor) {
+                passwordRequest.current = null;
+                request.resolve(secret);
+                setPasswordFor(null);
+                setSecret("");
+              } else void run(passwordFor, secret);
             }}
           >
             <input
@@ -156,8 +233,7 @@ export function useSpecialEntries(onError: (error: string) => void) {
           </form>
         </DialogContent>
       </Dialog>
-
     </>
   );
-  return { open, opening, dialogs, tasks };
+  return { open, execute, opening, dialogs, tasks };
 }

@@ -26,6 +26,7 @@ export type SerializedTab =
       blocks?: boolean;
       customTitle?: string;
       lastUsedAt?: number;
+      lastAgentMessageAt?: number;
       openedAt?: number;
       parked?: boolean;
       lastAgentSession?: AgentResume;
@@ -70,6 +71,10 @@ export function isSerializedTabs(value: unknown): value is SerializedTab[] {
           (typeof item.lastUsedAt === "number" &&
             Number.isFinite(item.lastUsedAt) &&
             item.lastUsedAt >= 0)) &&
+        (item.lastAgentMessageAt === undefined ||
+          (typeof item.lastAgentMessageAt === "number" &&
+            Number.isSafeInteger(item.lastAgentMessageAt) &&
+            item.lastAgentMessageAt > 0)) &&
         (item.lastAgentSession === undefined ||
           isAgentResume(item.lastAgentSession)) &&
         (item.blocks === undefined || typeof item.blocks === "boolean") &&
@@ -142,6 +147,9 @@ function serializeTab(tab: Tab): SerializedTab | null {
         kind: "terminal",
         tree: serializeNode(tab.paneTree, tab.activeLeafId),
         ...(tab.lastUsedAt !== undefined && { lastUsedAt: tab.lastUsedAt }),
+        ...(tab.lastAgentMessageAt !== undefined && {
+          lastAgentMessageAt: tab.lastAgentMessageAt,
+        }),
         ...(tab.openedAt !== undefined && { openedAt: tab.openedAt }),
         ...(tab.parked && { parked: true }),
         ...(tab.lastAgentSession && { lastAgentSession: tab.lastAgentSession }),
@@ -250,6 +258,9 @@ function hydrateTab(
         cold: true,
         title,
         ...(s.lastUsedAt !== undefined && { lastUsedAt: s.lastUsedAt }),
+        ...(s.lastAgentMessageAt !== undefined && {
+          lastAgentMessageAt: s.lastAgentMessageAt,
+        }),
         ...(s.openedAt !== undefined && { openedAt: s.openedAt }),
         ...(s.parked && { parked: true }),
         ...(s.lastAgentSession && { lastAgentSession: s.lastAgentSession }),

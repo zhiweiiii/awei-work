@@ -53,6 +53,10 @@ pub struct Provider {
     pub auth_style: AuthStyle,
     #[serde(default)]
     pub models: ModelRoutes,
+    /// The model's real context window, in tokens. Absent leaves Claude Code to
+    /// its own assumption, which is 200k for any model it does not know.
+    #[serde(default)]
+    pub context_window: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -126,13 +130,27 @@ impl Provider {
     /// Resolve what Claude Code asked for into what this relay serves.
     pub fn upstream_model(&self, requested: &str) -> String {
         let requested = strip_context_marker(requested);
-        let by_role = match role_of(requested) {
+        let role = role_of(requested);
+        if role.is_none()
+            && [
+                &self.models.default,
+                &self.models.opus,
+                &self.models.sonnet,
+                &self.models.haiku,
+            ]
+            .into_iter()
+            .any(|model| !model.trim().is_empty() && strip_context_marker(model) == requested)
+        {
+            return requested.to_string();
+        }
+        let by_role = match role {
             Some("opus") => self.models.opus.trim(),
             Some("sonnet") => self.models.sonnet.trim(),
             Some("haiku") => self.models.haiku.trim(),
             _ => "",
         };
         for candidate in [by_role, self.models.default.trim()] {
+            let candidate = strip_context_marker(candidate);
             if !candidate.is_empty() {
                 return candidate.to_string();
             }

@@ -6,6 +6,7 @@ export {
   disposeSession,
   leafHasForegroundProcess,
   leafCwd,
+  liveLeafIds,
   leafWorkspace,
   leafShellKind,
   leafIdForPty,

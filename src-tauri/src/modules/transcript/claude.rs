@@ -286,6 +286,7 @@ impl super::jsonl::JsonlState for ParseState {
         }
 
         Some(Transcript {
+            prompt_at: None,
             source: "claude",
             session_id,
             title: None,

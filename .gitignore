@@ -45,3 +45,6 @@ bash.exe.stackdump
 
 # Legacy local generated bundles, not repository source.
 scripts/convo-bundle/
+
+# Local connection automation examples.
+/examples/

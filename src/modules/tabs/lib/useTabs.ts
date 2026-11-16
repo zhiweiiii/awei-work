@@ -1,7 +1,16 @@
+import {
+  headerProjects,
+  reorderHeaderProjectsByGap,
+  runningProjectIds,
+} from "@/modules/spaces/lib/projectTabs";
+import { ptyIdForLeaf, useAgentActivityStore } from "@/modules/terminal";
 import { pathIdentity } from "@/lib/pathIdentity";
 import { moveProjectTabs } from "./moveProject";
 import { parkProjectTabs } from "./parkProject";
-import type { AgentResume } from "@/modules/spaces/lib/projectRestore";
+import {
+  mergeProjectAgentSnapshot,
+  type AgentResume,
+} from "@/modules/spaces/lib/projectRestore";
 import { isMarkdownPath } from "@/lib/utils";
 import {
   findLeafCwd,
@@ -36,6 +45,7 @@ export type TerminalTab = TabBase & {
   parked?: boolean;
   openedAt?: number;
   lastUsedAt?: number;
+  lastAgentMessageAt?: number;
   lastAgentSession?: AgentResume;
   autoResume?: boolean;
   id: number;
@@ -96,6 +106,8 @@ export type GitHistoryTab = TabBase & {
   kind: "git-history";
   title: string;
   repoRoot: string;
+  branch?: string | null;
+  graphRequest?: number;
 };
 
 export type GitCommitFileDiffTab = TabBase & {
@@ -130,6 +142,7 @@ export type TabPatch = Partial<{
   overrideLanguage: string | null;
   /** Only honored on git tab kinds (git-history). */
   repoRoot: string;
+  branch: string | null;
 }>;
 
 export type GitDiffOpenInput = {
@@ -456,7 +469,7 @@ export function planCommitHistoryOpen(
   ownerTabId?: number,
 ): { tabs: Tab[]; targetId: number } {
   const existing = tabs.find(
-    (tab) =>
+    (tab): tab is GitHistoryTab =>
       tab.kind === "git-history" &&
       tab.spaceId === spaceId &&
       tab.ownerTabId === ownerTabId &&
@@ -464,10 +477,16 @@ export function planCommitHistoryOpen(
   );
   const title = input.branch ? `History · ${input.branch}` : "Git History";
   if (existing) {
-    if (existing.title === title) return { tabs, targetId: existing.id };
     return {
       tabs: tabs.map((tab) =>
-        tab.id === existing.id ? { ...existing, title } : tab,
+        tab.id === existing.id
+          ? {
+              ...existing,
+              title,
+              branch: input.branch ?? null,
+              graphRequest: (existing.graphRequest ?? 0) + 1,
+            }
+          : tab,
       ),
       targetId: existing.id,
     };
@@ -480,6 +499,7 @@ export function planCommitHistoryOpen(
       {
         id,
         kind: "git-history",
+        branch: input.branch ?? null,
         spaceId,
         ...(ownerTabId !== undefined && { ownerTabId }),
         title,
@@ -619,11 +639,32 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     (update: number | ((current: number) => number)) => {
       const next =
         typeof update === "function" ? update(activeIdRef.current) : update;
+      const target = tabsRef.current.find((tab) => tab.id === next);
+      const ownerId =
+        target?.kind === "terminal" ? target.id : target?.ownerTabId;
+      const owner = tabsRef.current.find((tab) => tab.id === ownerId);
+      if (
+        owner?.kind === "terminal" &&
+        !owner.parked &&
+        owner.id !== activeTerminalIdRef.current
+      ) {
+        const running = runningProjectIds(
+          tabsRef.current,
+          useAgentActivityStore.getState().agents,
+          ptyIdForLeaf,
+        );
+        if (!running.has(owner.id))
+          setTabs((current) =>
+            current.map((tab) =>
+              tab.id === owner.id ? { ...tab, openedAt: undefined } : tab,
+            ),
+          );
+      }
       activeIdRef.current = next;
       updateOwner(tabsRef.current, next);
       setActiveIdState(next);
     },
-    [updateOwner],
+    [updateOwner, setTabs],
   );
 
   // Activating a cold tab warms it: one choke point for every activation path.
@@ -661,7 +702,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
                 parked: false,
                 cold: false,
                 lastUsedAt: Date.now(),
-                ...(tab.parked && { autoResume: false }),
+                ...(tab.parked && { autoResume: false, openedAt: undefined }),
               }
             : tab,
         ),
@@ -719,6 +760,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
 
   const replaceTabs = useCallback(
     (next: Tab[], nextActiveId: number) => {
+      activeIdRef.current = nextActiveId;
       setTabs(next);
       setActiveId(nextActiveId);
     },
@@ -1181,7 +1223,11 @@ export function useTabs(initial?: Partial<TerminalTab>) {
             return {
               ...x,
               ...(patch.title !== undefined && { title: patch.title }),
-              ...(patch.repoRoot !== undefined && { repoRoot: patch.repoRoot }),
+              ...(patch.repoRoot !== undefined && {
+                repoRoot: patch.repoRoot,
+                branch: null,
+              }),
+              ...(patch.branch !== undefined && { branch: patch.branch }),
             };
           }
           // editor tab: auto-promote from preview the moment the file becomes dirty.
@@ -1426,6 +1472,35 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [setTabs],
   );
 
+  const updateProjectAgentSnapshot = useCallback(
+    (captured: Tab[]) => {
+      setTabs((current) => mergeProjectAgentSnapshot(current, captured));
+    },
+    [setTabs],
+  );
+
+  const reorderHeaderProjects = useCallback(
+    (fromId: number, gap: number) => {
+      setTabs((current) =>
+        reorderHeaderProjectsByGap(
+          current,
+          headerProjects(
+            current,
+            runningProjectIds(
+              current,
+              useAgentActivityStore.getState().agents,
+              ptyIdForLeaf,
+            ),
+            activeTerminalIdRef.current ?? null,
+          ),
+          fromId,
+          gap,
+        ),
+      );
+    },
+    [setTabs],
+  );
+
   return {
     tabs,
     activeId,
@@ -1434,6 +1509,8 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     booted,
     replaceTabs,
     reorderTabByGap,
+    reorderHeaderProjects,
+    updateProjectAgentSnapshot,
     moveProject,
     parkProject,
     activateProject,

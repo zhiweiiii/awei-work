@@ -47,9 +47,11 @@ impl CodeState {
             run.cancelled.store(true, Ordering::Relaxed);
         }
     }
-    pub(super) fn cancel(&self, id: &str) {
+    pub(super) fn cancel(&self, id: &str, task: Option<&str>) {
         if let Some(run) = self.runs.lock().unwrap().get(id) {
-            run.cancelled.store(true, Ordering::Relaxed);
+            if task.is_none_or(|task| run.task == task) {
+                run.cancelled.store(true, Ordering::Relaxed);
+            }
         }
     }
 }

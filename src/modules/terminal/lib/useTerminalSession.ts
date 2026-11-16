@@ -27,7 +27,7 @@ import {
 } from "../block/lib/blockDecorations";
 import type { BlockMode } from "../block/lib/modeMachine";
 import { DormantRing } from "./dormantRing";
-import { gatewayPin, setGatewayPin } from "./gatewayPins";
+import { clearGatewayPin, gatewayRoute } from "./gatewayPins";
 import {
   createShellIntegrationState,
   registerCwdHandler,
@@ -318,6 +318,12 @@ export function interruptLeaf(leafId: number): void {
 
 export function leafCwd(leafId: number): string | null {
   return sessions.get(leafId)?.lastCwd ?? null;
+}
+
+/** Every command line the app currently holds a session for, in creation
+ *  order. Used when a routing change has to reach shells that already exist. */
+export function liveLeafIds(): number[] {
+  return [...sessions.keys()];
 }
 
 export function leafWorkspace(leafId: number): WorkspaceEnv | null {
@@ -923,7 +929,8 @@ async function openPtyForSession(
     s.blocks,
     usePreferencesStore.getState().terminalShell || undefined,
     leafId,
-    gatewayPin(leafId),
+    // A terminal's own pin wins; otherwise the app-wide choice applies.
+    gatewayRoute(leafId)?.providerId,
     s.workspace,
   );
   // Only resize if the bound dims changed during the spawn: a same-size
@@ -1216,7 +1223,10 @@ export function disposeSession(leafId: number): Promise<void> {
   s.pty = null;
   s.pendingInput = "";
   sessions.delete(leafId);
-  setGatewayPin(leafId, null);
+  // The terminal is gone, so a pin made for it is meaningless. Dropping it
+  // rather than storing `null` matters: `null` means "follow nothing", which
+  // would keep a recycled id out of the global choice.
+  clearGatewayPin(leafId);
   blockViewportListeners.delete(leafId);
   readyLeaves.delete(leafId);
   const waiters = readyWaiters.get(leafId);

@@ -260,6 +260,7 @@ pub struct GitCloneOptions {
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct GitLogFilterOptions {
+    pub all: bool,
     pub branch: Option<String>,
     pub author: Option<String>,
     pub since: Option<String>,

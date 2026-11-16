@@ -1871,6 +1871,9 @@ pub fn log_filtered(
         "--shortstat".into(),
         format_arg.into(),
     ];
+    if options.all {
+        args.push("--all".into());
+    }
     if let Some(branch) = options
         .branch
         .as_deref()

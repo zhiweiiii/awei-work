@@ -227,9 +227,10 @@ pub async fn ssh_cancel_special(
     window: WebviewWindow,
     app: tauri::AppHandle,
     id: String,
+    task_id: Option<String>,
 ) -> Result<(), String> {
     super::main_only(&window)?;
     let state = app.state::<EntryState>();
-    state.code.cancel(&id);
+    state.code.cancel(&id, task_id.as_deref());
     Ok(())
 }

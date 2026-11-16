@@ -35,6 +35,7 @@ export const EMPTY_HISTORY_FILTERS: HistoryFilters = {
 
 /** Options forwarded to the git log backend. */
 export type GitLogFilterOptions = {
+  all?: boolean;
   branch?: string;
   author?: string;
   since?: string;

@@ -24,6 +24,20 @@ where
 }
 
 #[tauri::command]
+pub async fn git_generate_commit_message(
+    repo_roots: Vec<String>,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<String, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    let handle = app.clone();
+    blocking(app, move |registry| {
+        super::commit_message::generate(&handle, registry, repo_roots, &workspace)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn git_resolve_repo(
     cwd: String,
     workspace: Option<WorkspaceEnv>,

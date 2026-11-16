@@ -58,6 +58,8 @@ export function GitHistoryStack({
       key={active.id}
       ref={setRef}
       repoRoot={active.repoRoot}
+      initialBranch={active.branch}
+      graphRequest={active.graphRequest}
       repos={repos}
       onSwitchRepo={
         onSwitchRepo

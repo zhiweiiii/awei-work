@@ -47,3 +47,27 @@ export function headerProjects(
     )
     .sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0) || a.id - b.id);
 }
+
+export function reorderHeaderProjectsByGap(
+  tabs: Tab[],
+  visible: readonly TerminalTab[],
+  fromId: number,
+  gap: number,
+): Tab[] {
+  const from = visible.findIndex((tab) => tab.id === fromId);
+  if (from < 0 || !Number.isInteger(gap) || gap < 0 || gap > visible.length)
+    return tabs;
+  const to = gap > from ? gap - 1 : gap;
+  if (from === to) return tabs;
+  const ordered = [...visible];
+  const [moved] = ordered.splice(from, 1);
+  ordered.splice(to, 0, moved);
+  const times = new Map(
+    ordered.map((tab, index) => [tab.id, visible[index].openedAt]),
+  );
+  return tabs.map((tab) =>
+    tab.kind === "terminal" && times.has(tab.id)
+      ? { ...tab, openedAt: times.get(tab.id) }
+      : tab,
+  );
+}

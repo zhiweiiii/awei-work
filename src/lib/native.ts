@@ -201,6 +201,7 @@ export type GitCloneOptions = {
 };
 
 export type GitLogFilterOptions = {
+  all?: boolean;
   branch?: string | null;
   author?: string | null;
   since?: string | null;
@@ -237,6 +238,18 @@ export type WebStatus = {
 };
 
 export const native = {
+  /** Start dsh's web server if it is not running and return its authenticated
+   *  URL. dsh has no terminal surface, so this is how a conversation is begun. */
+  dshLaunch: () => invoke<{ url: string; ready: boolean }>("dsh_launch"),
+  dshStop: () => invoke<void>("dsh_stop"),
+  dshStatus: () =>
+    invoke<{ running: boolean; port: number | null }>("dsh_status"),
+  agentSessionLastMessageAt: (
+    cwd: string,
+    agent: "claude" | "codex",
+    id: string,
+  ) =>
+    invoke<number | null>("agent_session_last_message_at", { cwd, agent, id }),
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   workspaceAuthorize: (
     path: string,
@@ -297,6 +310,10 @@ export const native = {
       repoRoot,
       workspace: currentWorkspaceEnv(),
     }),
+  gitGenerateCommitMessage: (
+    repoRoots: string[],
+    workspace: WorkspaceEnv = currentWorkspaceEnv(),
+  ) => invoke<string>("git_generate_commit_message", { repoRoots, workspace }),
   gitDiff: (
     repoRoot: string,
     path: string | null,
