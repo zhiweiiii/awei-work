@@ -1,6 +1,6 @@
 # 项目文档
 
-使用介绍、下载和截图见根目录 [README](../README.md)。开发前先读 [AWEI-WORK.md](../AWEI-WORK.md)，贡献流程见 [CONTRIBUTING](../CONTRIBUTING.md)。
+使用介绍、下载和截图见根目录 [中文 README](../README.md) 或 [English README](../README.en.md)，默认首页为中文。开发前先读 [AWEI-WORK.md](../AWEI-WORK.md)，贡献流程见 [CONTRIBUTING](../CONTRIBUTING.md)。
 
 这里只保留单层主题指南，不另建架构/历史子目录。
 
