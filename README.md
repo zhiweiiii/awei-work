@@ -1,9 +1,7 @@
-如果你日常工作只需要用claude code/codex，git，ssh，以及看看文件，那么这个软件就是为你准备的
-
 <div align="center">
   <img src="public/logo.png" width="80" height="80" alt="awei-work" />
   <h1>awei-work</h1>
-  <p>把 AI 终端、Git、SSH 和项目文件放进一个 Windows 工作区。</p>
+  <p>如果你日常工作只需要用claude code/codex，git，ssh，以及看看文件，那么这个软件就是为你准备的</p>
   <p><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
   <p><a href="https://github.com/zhiweiiii/awei-work/releases/latest">下载 Windows 版</a> · <a href="#功能一览">功能一览</a> · <a href="docs/README.md">使用与开发文档</a> · <a href="https://github.com/zhiweiiii/awei-work/issues">反馈问题</a></p>
 </div>
