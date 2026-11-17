@@ -47,6 +47,7 @@ import {
   RemoteCheckoutRow,
 } from "./RemoteCheckoutRow";
 import { RenameBranchDialog } from "./RenameBranchDialog";
+import { RemoteBranchUrlDialog } from "./RemoteBranchUrlDialog";
 import { WorkingTreeDiffDialog } from "./WorkingTreeDiffDialog";
 import { WorktreeManagerDialog } from "./WorktreeManagerDialog";
 
@@ -79,6 +80,7 @@ type BranchDialog =
   | { kind: "pull-confirm"; repoRoot: string; current: string }
   | { kind: "compare"; repoRoot: string; target: string }
   | { kind: "diff"; repoRoot: string }
+  | { kind: "branch-url"; repoRoot: string; branch: GitBranchEntry }
   | { kind: "worktrees"; repoRoot: string }
   | null;
 
@@ -610,6 +612,13 @@ function ScopedRepoBranchSelector({
                     onRebase={(target) => handleRebase(repo.repoRoot, target)}
                     onCompare={(target) => handleCompare(repo.repoRoot, target)}
                     onDiff={() => handleDiff(repo.repoRoot)}
+                    onBranchUrl={(branch) =>
+                      setDialog({
+                        kind: "branch-url",
+                        repoRoot: repo.repoRoot,
+                        branch,
+                      })
+                    }
                     onNewBranch={() => handleNewBranch(repo.repoRoot)}
                     onWorktrees={() => handleWorktrees(repo.repoRoot)}
                     onSelectLocal={(name) =>
@@ -748,6 +757,17 @@ function ScopedRepoBranchSelector({
             : ""
         }
       />
+      <RemoteBranchUrlDialog
+        open={dialog?.kind === "branch-url"}
+        onOpenChange={(next) => {
+          if (!next) setDialog(null);
+        }}
+        repoRoot={dialog?.kind === "branch-url" ? dialog.repoRoot : ""}
+        repoName={
+          dialog?.kind === "branch-url" ? shortName(dialog.repoRoot) : ""
+        }
+        branch={dialog?.kind === "branch-url" ? dialog.branch : null}
+      />
       <WorktreeManagerDialog
         open={dialog?.kind === "worktrees"}
         onOpenChange={(next) => {
@@ -783,6 +803,7 @@ function BranchFlyout({
   onRebase,
   onCompare,
   onDiff,
+  onBranchUrl,
   onNewBranch,
   onWorktrees,
   onSelectLocal,
@@ -807,6 +828,7 @@ function BranchFlyout({
   onRebase: (target: string) => void;
   onCompare: (target: string) => void;
   onDiff: () => void;
+  onBranchUrl: (branch: GitBranchEntry) => void;
   onNewBranch: () => void;
   onWorktrees: () => void;
   onSelectLocal: (branchName: string) => void;
@@ -837,6 +859,10 @@ function BranchFlyout({
           onRebase={onRebase}
           onCompare={onCompare}
           onDiff={onDiff}
+          onBranchUrl={() => {
+            const branch = branches.find((item) => item.isHead);
+            if (branch) onBranchUrl(branch);
+          }}
         />
       </DropdownMenuLabel>
       <DropdownMenuItem
