@@ -5,7 +5,9 @@
   <p><a href="https://github.com/zhiweiiii/awei-work/releases/latest">下载 Windows 版</a> · <a href="#功能一览">功能一览</a> · <a href="docs/README.md">使用与开发文档</a> · <a href="https://github.com/zhiweiiii/awei-work/issues">反馈问题</a></p>
 </div>
 
-如果你日常工作只需要用claude code/codex，git，ssh，以及看看文件，那么这个软件就是为你准备的 仅支持 Windows。
+如果你日常工作只需要用claude code/codex，git，ssh，以及看看文件，那么这个软件就是为你准备的
+
+仅支持 Windows。
 
 ![awei-work 工作区：项目文件树与 Codex 终端](docs/screenshots/workspace.png)
 

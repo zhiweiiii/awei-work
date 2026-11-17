@@ -5,7 +5,9 @@
   <p><a href="https://github.com/zhiweiiii/awei-work/releases/latest">Download for Windows</a> · <a href="#features">Features</a> · <a href="docs/README.md">Documentation (Chinese)</a> · <a href="https://github.com/zhiweiiii/awei-work/issues">Report an issue</a></p>
 </div>
 
-If your daily work only needs Claude Code / Codex, Git, SSH, and a way to browse files, this app is for you. Windows only.
+If your daily work only needs Claude Code / Codex, Git, SSH, and a way to browse files, this app is for you.
+
+Windows only.
 
 ![awei-work workspace with a project file tree and a Codex terminal](docs/screenshots/workspace.png)
 
