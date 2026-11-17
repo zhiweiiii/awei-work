@@ -12,7 +12,7 @@
 
 **仅支持 Windows。** Claude Code / Codex 需自行安装并登录，账号权限与模型费用由对应服务提供。
 
-![awei-work 工作区：项目文件树与分屏终端](docs/screenshots/workspace.png)
+![awei-work 工作区：项目文件树与 Codex 终端](docs/screenshots/workspace.png)
 
 > 截图使用当前应用界面和演示数据，展示布局与操作入口；项目、连接、终端内容和用量均为示例，不代表真实模型调用或服务器连接。桌面界面目前以中文为主。
 

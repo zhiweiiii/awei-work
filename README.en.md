@@ -12,7 +12,7 @@ Keep using the Claude Code / Codex CLI you already know. Browse files, review di
 
 **Windows only.** Install and sign in to Claude Code / Codex separately. Account access and model charges are handled by the respective service.
 
-![awei-work workspace with a project file tree and split terminals](docs/screenshots/workspace.png)
+![awei-work workspace with a project file tree and a Codex terminal](docs/screenshots/workspace.png)
 
 > Screenshots show the current application UI with sample data. Projects, connections, terminal output, and usage figures are examples, not live model calls or server connections. The desktop UI is currently primarily in Chinese.
 
