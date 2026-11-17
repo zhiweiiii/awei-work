@@ -1,14 +1,11 @@
 <div align="center">
   <img src="public/logo.png" width="80" height="80" alt="awei-work" />
   <h1>awei-work</h1>
-  <p>如果你日常工作只需要用claude code/codex，git，ssh，以及看看文件，那么这个软件就是为你准备的</p>
   <p><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
   <p><a href="https://github.com/zhiweiiii/awei-work/releases/latest">下载 Windows 版</a> · <a href="#功能一览">功能一览</a> · <a href="docs/README.md">使用与开发文档</a> · <a href="https://github.com/zhiweiiii/awei-work/issues">反馈问题</a></p>
 </div>
 
-你可以继续用熟悉的 Claude Code / Codex CLI 写代码，在同一个窗口里查看文件、检查差异、提交代码和连接服务器。离开电脑后，也能从手机继续查看和操作桌面的同一会话。
-
-**仅支持 Windows。** Claude Code / Codex 需自行安装并登录，账号权限与模型费用由对应服务提供。
+如果你日常工作只需要用claude code/codex，git，ssh，以及看看文件，那么这个软件就是为你准备的 仅支持 Windows。
 
 ![awei-work 工作区：项目文件树与 Codex 终端](docs/screenshots/workspace.png)
 
