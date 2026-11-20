@@ -271,3 +271,99 @@ pub(super) fn ensure_plain_local(path: &Path) -> Result<std::fs::Metadata, Strin
     }
     Ok(metadata)
 }
+
+fn remote_name(value: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value == "."
+        || value == ".."
+        || value.len() > 4096
+        || value
+            .chars()
+            .any(|character| matches!(character, '/' | '\\' | ':') || character.is_control())
+    {
+        return Err("请输入同一目录下的文件名".into());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn rename_local(directory: &str, old_name: &str, new_name: &str) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+
+    name(old_name)?;
+    name(new_name)?;
+    let directory =
+        std::fs::canonicalize(local_path(directory)?).map_err(|error| error.to_string())?;
+    let source = directory.join(old_name);
+    let target = directory.join(new_name);
+    ensure_plain_local(&source)?;
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    if unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), 0) } != 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.kind() == std::io::ErrorKind::AlreadyExists {
+        Err("目标名称已存在".into())
+    } else {
+        Err(error.to_string())
+    }
+}
+
+async fn rename_remote(
+    connection: &Connection,
+    directory: &str,
+    old_name: &str,
+    new_name: &str,
+) -> Result<(), String> {
+    use russh_sftp::{client::error::Error, protocol::StatusCode};
+
+    remote_name(old_name)?;
+    remote_name(new_name)?;
+    let sftp = connection.sftp().await?;
+    let source = remote_join(directory, old_name);
+    let target = remote_join(directory, new_name);
+    let kind = deadline(sftp.symlink_metadata(&source)).await?.file_type();
+    if !kind.is_file() && !kind.is_dir() {
+        return Err("只能重命名普通文件和目录".into());
+    }
+    deadline(async {
+        match sftp.symlink_metadata(&target).await {
+            Ok(_) => return Err("目标名称已存在".into()),
+            Err(Error::Status(status)) if status.status_code == StatusCode::NoSuchFile => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        sftp.rename(source, target)
+            .await
+            .map_err(|error| error.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ssh_rename(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    side: String,
+    directory: String,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    main_only(&window)?;
+    let connection = state.connection(id)?;
+    path(&directory)?;
+    if old_name == new_name {
+        return Err("请输入不同的新名称".into());
+    }
+    match side.as_str() {
+        #[cfg(windows)]
+        "local" => {
+            crate::modules::fs::blocking(move || rename_local(&directory, &old_name, &new_name))
+                .await
+        }
+        "remote" => rename_remote(&connection, &directory, &old_name, &new_name).await,
+        _ => Err("Invalid file browser side".into()),
+    }
+}

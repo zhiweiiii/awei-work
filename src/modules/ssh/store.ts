@@ -1,7 +1,13 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { validEntry, type ConnectionProfile } from "@/modules/ssh/entryTypes";
+import {
+  isSshProfile,
+  validEntry,
+  type ConnectionProfile,
+  type SshProfile,
+} from "@/modules/ssh/entryTypes";
+import type { Side } from "@/modules/ssh/api";
 import type { ConnectionGroup } from "@/modules/ssh/groupPrerequisite";
 export type {
   SshProfile,
@@ -33,6 +39,52 @@ const disk = new LazyStore("awei-work-ssh.json", {
 });
 let loading: Promise<void> | null = null;
 let saving: Promise<void> = Promise.resolve();
+type FileDirectories = Partial<Record<Side, string>>;
+const directoriesKey = "fileDirectories";
+const connectionKey = (profile: SshProfile) =>
+  JSON.stringify([profile.id, profile.host, profile.port, profile.username]);
+
+async function readDirectories() {
+  return (
+    (await disk.get<Record<string, FileDirectories>>(directoriesKey)) ?? {}
+  );
+}
+
+export async function sshFileDirectories(
+  profile: SshProfile,
+): Promise<FileDirectories> {
+  await saving;
+  const saved = (await readDirectories())[connectionKey(profile)];
+  return {
+    local: typeof saved?.local === "string" ? saved.local : undefined,
+    remote: typeof saved?.remote === "string" ? saved.remote : undefined,
+  };
+}
+
+export function rememberSshDirectory(
+  profile: SshProfile,
+  side: Side,
+  path: string,
+): Promise<void> {
+  const operation = saving.then(async () => {
+    const key = connectionKey(profile);
+    const keys = useSsh
+      .getState()
+      .profiles.filter(isSshProfile)
+      .map(connectionKey);
+    if (!keys.includes(key)) return;
+    const saved = await readDirectories();
+    if (saved[key]?.[side] === path) return;
+    const directories = Object.fromEntries(
+      keys.filter((key) => saved[key]).map((key) => [key, saved[key]]),
+    );
+    directories[key] = { ...directories[key], [side]: path };
+    await disk.set(directoriesKey, directories);
+    await disk.save();
+  });
+  saving = operation.catch(() => {});
+  return operation;
+}
 export const useSsh = create<State>((set) => ({
   ...defaults,
   ready: false,

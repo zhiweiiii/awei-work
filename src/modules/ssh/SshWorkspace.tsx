@@ -52,9 +52,11 @@ type Preparation = {
 export default function SshWorkspace({
   sidebarHost,
   workspaceHost,
+  projectDirectory,
 }: {
   sidebarHost: HTMLElement | null;
   workspaceHost: HTMLElement | null;
+  projectDirectory: string | null;
 }) {
   const visible = useSsh((state) => state.visible);
   const selected = useSsh((state) => state.selected);
@@ -148,6 +150,19 @@ export default function SshWorkspace({
     const attempt = ++request.current;
     setAuth(null);
     useSsh.getState().open(entry.id);
+    if (isSshProfile(entry)) {
+      const existing = sessionsRef.current.find(
+        (session) => session.profile.id === entry.id && session.closed === null,
+      );
+      if (existing) {
+        useSsh.setState({ workspaceId: entry.id });
+        if (targetView === "files")
+          setFilesOpened((before) => new Set([...before, existing.id]));
+        setView(targetView);
+        setError("");
+        return;
+      }
+    }
     action(async () => {
       const state = useSsh.getState();
       const code = groupPrerequisite(entry, state.groups, state.profiles);
@@ -192,31 +207,21 @@ export default function SshWorkspace({
       )
         return;
       if (isSshProfile(entry)) {
-        const existing = sessionsRef.current.find(
-          (session) => session.profile.id === entry.id,
-        );
-        if (existing && !existing.closed) {
-          useSsh.setState({ workspaceId: entry.id });
-          if (targetView === "files")
-            setFilesOpened((before) => new Set([...before, existing.id]));
-          setView(targetView);
-        } else {
-          await removeSession(entry.id);
-          if (
-            mounted.current &&
-            request.current === attempt &&
-            useSsh
-              .getState()
-              .profiles.find((profile) => profile.id === entry.id) === entry &&
-            useSsh.getState().visible &&
-            useSsh.getState().selected === entry.id
-          )
-            setAuth({
-              profile: { ...entry },
-              request: attempt,
-              view: targetView,
-            });
-        }
+        await removeSession(entry.id);
+        if (
+          mounted.current &&
+          request.current === attempt &&
+          useSsh
+            .getState()
+            .profiles.find((profile) => profile.id === entry.id) === entry &&
+          useSsh.getState().visible &&
+          useSsh.getState().selected === entry.id
+        )
+          setAuth({
+            profile: { ...entry },
+            request: attempt,
+            view: targetView,
+          });
       } else if (
         entry.kind === "code" &&
         !["queued", "running"].includes(
@@ -475,7 +480,11 @@ export default function SshWorkspace({
                     <div
                       className={`absolute inset-0 ${view === "files" ? "" : "invisible pointer-events-none"}`}
                     >
-                      <SshFiles id={item.id} />
+                      <SshFiles
+                        id={item.id}
+                        profile={item.profile}
+                        projectDirectory={projectDirectory}
+                      />
                     </div>
                   )}
                 </div>
@@ -647,7 +656,7 @@ export default function SshWorkspace({
                   ))}
               </select>
               <span className="text-muted-foreground">
-                打开组内连接前执行，成功后继续；失败或取消则不连接。展开分组不会执行。
+                建立 SSH 连接或执行组内其他代码前运行。已有 SSH 会话直接打开。
               </span>
             </label>
             <button

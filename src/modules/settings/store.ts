@@ -117,6 +117,7 @@ export type Preferences = {
   editorFormatOnSave: boolean;
   /** Diff view: fold the unchanged stretches so only the changes are shown. */
   diffCollapseUnchanged: boolean;
+  diffContextLines: number;
   editorFormatter: EditorFormatter;
   /** languageResolver id -> formatter, overriding the global default. */
   editorFormatterByLang: Record<string, EditorFormatter>;
@@ -191,6 +192,7 @@ const KEY_EDITOR_AUTO_SAVE = "editorAutoSave";
 const KEY_EDITOR_AUTO_SAVE_DELAY = "editorAutoSaveDelay";
 const KEY_EDITOR_FORMAT_ON_SAVE = "editorFormatOnSave";
 const KEY_DIFF_COLLAPSE_UNCHANGED = "diffCollapseUnchanged";
+const KEY_DIFF_CONTEXT_LINES = "diffContextLines";
 const KEY_EDITOR_FORMATTER = "editorFormatter";
 const KEY_EDITOR_FORMATTER_BY_LANG = "editorFormatterByLang";
 const KEY_EDITOR_CUSTOM_FORMAT_COMMAND = "editorCustomFormatCommand";
@@ -259,6 +261,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   editorAutoSaveDelay: 1000,
   editorFormatOnSave: false,
   diffCollapseUnchanged: true,
+  diffContextLines: 8,
   editorFormatter: "lsp",
   editorFormatterByLang: {},
   editorCustomFormatCommand: "",
@@ -410,6 +413,9 @@ export async function loadPreferences(): Promise<Preferences> {
     diffCollapseUnchanged:
       get<boolean>(KEY_DIFF_COLLAPSE_UNCHANGED) ??
       DEFAULT_PREFERENCES.diffCollapseUnchanged,
+    diffContextLines:
+      get<number>(KEY_DIFF_CONTEXT_LINES) ??
+      DEFAULT_PREFERENCES.diffContextLines,
     editorFormatter:
       get<EditorFormatter>(KEY_EDITOR_FORMATTER) ??
       DEFAULT_PREFERENCES.editorFormatter,
@@ -762,6 +768,10 @@ export async function setDiffCollapseUnchanged(value: boolean): Promise<void> {
   await writePref(KEY_DIFF_COLLAPSE_UNCHANGED, value);
 }
 
+export async function setDiffContextLines(value: number): Promise<void> {
+  await writePref(KEY_DIFF_CONTEXT_LINES, value);
+}
+
 export async function setEditorFormatter(
   value: EditorFormatter,
 ): Promise<void> {
@@ -840,6 +850,7 @@ export async function onPreferencesChange(
     [KEY_EDITOR_AUTO_SAVE_DELAY]: "editorAutoSaveDelay",
     [KEY_EDITOR_FORMAT_ON_SAVE]: "editorFormatOnSave",
     [KEY_DIFF_COLLAPSE_UNCHANGED]: "diffCollapseUnchanged",
+    [KEY_DIFF_CONTEXT_LINES]: "diffContextLines",
     [KEY_EDITOR_FORMATTER]: "editorFormatter",
     [KEY_EDITOR_FORMATTER_BY_LANG]: "editorFormatterByLang",
     [KEY_EDITOR_CUSTOM_FORMAT_COMMAND]: "editorCustomFormatCommand",

@@ -11,7 +11,14 @@ import {
   parseWorkspaceScopeKey,
 } from "@/modules/workspace";
 import { joinPath } from "@/modules/explorer/lib/useFileTree";
-import { setDiffCollapseUnchanged } from "@/modules/settings/store";
+import {
+  setDiffCollapseUnchanged,
+  setDiffContextLines,
+} from "@/modules/settings/store";
+import {
+  diffFoldRevision,
+  structuralDiffFolding,
+} from "@/modules/editor/lib/diffFolding";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   RefreshIcon,
@@ -136,12 +143,9 @@ const DIFF_THEME = EditorView.theme({
     background: "rgba(220, 90, 90, 0.12)",
     borderColor: "rgba(220, 90, 90, 0.55)",
   },
-  ".cm-collapsedLines": {
-    backgroundColor: "transparent",
-    color: "var(--muted-foreground, #9ca3af)",
-    fontSize: "10.5px",
-    padding: "2px 8px",
-    opacity: 0.7,
+  ".cm-diff-fold": {
+    height: "4px",
+    borderTop: "1px solid var(--border)",
   },
 });
 
@@ -242,6 +246,7 @@ export const GitDiffPane = forwardRef<GitDiffPaneHandle, Props>(
     const collapseUnchanged = usePreferencesStore(
       (s) => s.diffCollapseUnchanged,
     );
+    const contextLines = usePreferencesStore((s) => s.diffContextLines);
     const [storedState, setState] = useState<LoadState>(() =>
       active ? loadStateFromCache(source, env) : { kind: "idle" },
     );
@@ -357,6 +362,10 @@ export const GitDiffPane = forwardRef<GitDiffPaneHandle, Props>(
       () => normalizeToLf(rawModified),
       [rawModified],
     );
+    const foldRevision = useMemo(
+      () => diffFoldRevision(originalContent, modifiedContent),
+      [originalContent, modifiedContent],
+    );
     const isBinary = loaded?.isBinary ?? false;
     const fallbackPatch = loaded?.fallbackPatch ?? "";
 
@@ -461,12 +470,6 @@ export const GitDiffPane = forwardRef<GitDiffPaneHandle, Props>(
           diffConfig: { scanLimit: 10000, timeout: 200 },
           gutter: true,
           syntaxHighlightDeletions: true,
-          // Folded, the file is only what changed; unfolded it is the file
-          // with the changes marked in it. Both are worth having, so it is a
-          // toggle rather than a decision made here.
-          collapseUnchanged: collapseUnchanged
-            ? { margin: 3, minSize: 6 }
-            : undefined,
           // One button, labelled for what it does here. The library's default
           // pair is Accept/Reject, which is merge-conflict vocabulary: there
           // is no conflict on screen, only a change the user may want undone.
@@ -489,9 +492,20 @@ export const GitDiffPane = forwardRef<GitDiffPaneHandle, Props>(
               }
             : false,
         }),
+        structuralDiffFolding({
+          context: contextLines,
+          enabled: collapseUnchanged,
+        }),
         DIFF_THEME,
       ],
-      [originalContent, langExt, collapseUnchanged, revertable, persistRevert],
+      [
+        originalContent,
+        langExt,
+        collapseUnchanged,
+        revertable,
+        persistRevert,
+        contextLines,
+      ],
     );
 
     // Cache-hit path only: the diff came from the cache before the language
@@ -572,34 +586,54 @@ export const GitDiffPane = forwardRef<GitDiffPaneHandle, Props>(
             {/* The fold has nothing to act on in the patch fallback: that view
                 is the patch, which is already only the changes. */}
             {!useFallback ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-1.5 text-[10.5px]"
-                /* Labelled with the VERB, and the tooltip says where you are.
+              <>
+                <select
+                  aria-label="差异上下文行数"
+                  title="改动前后保留的行数；自动保留可识别的类和方法声明"
+                  className="h-6 rounded border border-border/60 bg-background px-1 text-[10.5px]"
+                  value={contextLines}
+                  disabled={!collapseUnchanged}
+                  onChange={(event) =>
+                    void setDiffContextLines(Number(event.target.value)).catch(
+                      (error) => errorToast("保存上下文行数失败", error),
+                    )
+                  }
+                >
+                  {[4, 8, 16, 32].map((count) => (
+                    <option key={count} value={count}>
+                      {count} 行上下文
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-1.5 text-[10.5px]"
+                  /* Labelled with the VERB, and the tooltip says where you are.
                    The old labels were bare nouns ("完整文件" / "仅变动"), which
                    read as a description of what is on screen rather than as
                    what the click does: with the fold off the button said
                    "仅变动" next to a fully expanded file, so a working toggle
                    looked broken. */
-                title={
-                  collapseUnchanged
-                    ? "当前：仅显示变动。点击展开为完整文件"
-                    : "当前：完整文件。点击折叠未变动的部分"
-                }
-                onClick={() =>
-                  void setDiffCollapseUnchanged(!collapseUnchanged).catch(
-                    (error) => errorToast("保存差异显示设置失败", error),
-                  )
-                }
-              >
-                <HugeiconsIcon
-                  icon={collapseUnchanged ? UnfoldMoreIcon : UnfoldLessIcon}
-                  size={13}
-                  strokeWidth={1.75}
-                />
-                {collapseUnchanged ? "展开全文" : "折叠未变动"}
-              </Button>
+                  title={
+                    collapseUnchanged
+                      ? "当前：保留改动、上下文和相关声明，隐藏未改动方法。点击展开为完整文件"
+                      : "当前：完整文件。点击折叠未变动的部分"
+                  }
+                  onClick={() => {
+                    void setDiffCollapseUnchanged(!collapseUnchanged).catch(
+                      (error) => errorToast("保存差异显示设置失败", error),
+                    );
+                  }}
+                >
+                  <HugeiconsIcon
+                    icon={collapseUnchanged ? UnfoldMoreIcon : UnfoldLessIcon}
+                    size={13}
+                    strokeWidth={1.75}
+                  />
+                  {collapseUnchanged ? "展开全文" : "折叠未变动"}
+                </Button>
+              </>
             ) : null}
             {onAttachToAgent ? (
               <Button
@@ -646,19 +680,7 @@ export const GitDiffPane = forwardRef<GitDiffPaneHandle, Props>(
             </ScrollArea>
           ) : (
             <CodeMirror
-              // Remount when the fold is toggled, and again when the language
-              // pack lands. `unifiedMergeView` computes its collapsed ranges
-              // when the state field is created and a reconfigure does not
-              // rebuild them, so ANY later change to the extension array drops
-              // the folds while leaving the option set.
-              //
-              // The language is the other thing that changes it. It resolves
-              // synchronously only when its pack is already cached; the first
-              // diff of a .java or .xml file in a session mounts with
-              // `langExt` null, folded correctly, and then the import lands
-              // and reconfigures the view back to the whole file. Keying on
-              // readiness costs one remount the first time a language is seen.
-              key={`${collapseUnchanged ? "folded" : "full"}:${langExt ? "lang" : "nolang"}`}
+              key={`${foldRevision}:${collapseUnchanged}:${contextLines}:${langExt ? "lang" : "nolang"}`}
               ref={cmRef}
               value={modifiedContent}
               theme={themeExt}

@@ -41,11 +41,14 @@ struct ParseState {
     prompt_at: Option<i64>,
 }
 
-pub(super) fn read_file(file: &Path) -> Option<std::sync::Arc<Transcript>> {
+pub(super) fn read_file(file: &Path, complete: bool) -> Option<std::sync::Arc<Transcript>> {
     static CACHE: OnceLock<super::jsonl::ReaderCache<ParseState>> = OnceLock::new();
-    CACHE
-        .get_or_init(super::jsonl::ReaderCache::new)
-        .read(file, || session_id(file))
+    let cache = CACHE.get_or_init(super::jsonl::ReaderCache::new);
+    if complete {
+        cache.read_complete(file, || session_id(file))
+    } else {
+        cache.read(file, || session_id(file))
+    }
 }
 
 impl super::jsonl::JsonlState for ParseState {
@@ -60,13 +63,14 @@ impl super::jsonl::JsonlState for ParseState {
             };
             self.sequence += 1;
             match value.get("type").and_then(Value::as_str) {
-                Some("response_item") => response_item(
-                    value.get("payload").unwrap_or(&Value::Null),
-                    timestamp(&value),
-                    &mut steps,
-                    &mut pending_tools,
-                    self.sequence,
-                ),
+                Some("response_item") => {
+                    let item = value.get("payload").unwrap_or(&Value::Null);
+                    let at = timestamp(&value);
+                    if at > 0 && is_user_prompt(item) {
+                        self.prompt_at = Some(self.prompt_at.unwrap_or(0).max(at));
+                    }
+                    response_item(item, at, &mut steps, &mut pending_tools, self.sequence);
+                }
                 Some("event_msg") => match value
                     .get("payload")
                     .and_then(|payload| payload.get("type"))
@@ -117,6 +121,41 @@ impl super::jsonl::JsonlState for ParseState {
             revision,
         })
     }
+}
+
+fn is_user_prompt(item: &Value) -> bool {
+    if item.get("type").and_then(Value::as_str) != Some("message")
+        || item.get("role").and_then(Value::as_str) != Some("user")
+    {
+        return false;
+    }
+    if let Some(metadata) = item.get("internal_chat_message_metadata_passthrough") {
+        return metadata
+            .get("content_item_metadata")
+            .and_then(Value::as_array)
+            .is_some_and(|parts| {
+                parts.iter().any(|part| {
+                    part.pointer("/provenance/type").and_then(Value::as_str) == Some("user")
+                })
+            })
+            || metadata
+                .get("content_item_kinds")
+                .and_then(Value::as_array)
+                .is_some_and(|kinds| {
+                    kinds
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .any(|kind| kind.starts_with("user."))
+                });
+    }
+    let Some(text) = item.get("content").and_then(message_text) else {
+        return false;
+    };
+    let text = text.trim_start();
+    !text.starts_with('<')
+        && !text.starts_with("# AGENTS.md")
+        && !text.starts_with("# CLAUDE.md")
+        && !text.starts_with("Caveat:")
 }
 
 fn response_item(

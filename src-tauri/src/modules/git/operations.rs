@@ -1015,13 +1015,7 @@ pub fn pull_ff_only(
 ) -> Result<()> {
     let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
     ensure_git_available(&repo_root.workspace)?;
-    let output = run_git(
-        &repo_root.workspace,
-        Some(&repo_root.git_path),
-        ["pull", "--ff-only"],
-        NETWORK_TIMEOUT_SECS,
-    )?;
-    ensure_success(&output, "git pull --ff-only failed")
+    super::pull::fast_forward(&repo_root)
 }
 
 // ── Commit variants ───────────────────────────────────────────────────
@@ -1525,6 +1519,9 @@ pub fn pull_advanced(
 ) -> Result<()> {
     let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
     ensure_git_available(&repo_root.workspace)?;
+    if strategy == "ff-only" {
+        return super::pull::fast_forward(&repo_root);
+    }
     let flag: Option<&str> = match strategy {
         "merge" => None,
         "rebase" => Some("--rebase"),

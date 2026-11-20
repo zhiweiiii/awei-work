@@ -67,6 +67,25 @@ impl<S: JsonlState> ReaderCache<S> {
         }
     }
 
+    pub fn read_complete(
+        &self,
+        path: &Path,
+        mut session_id: impl FnMut() -> Option<String>,
+    ) -> Option<Arc<Transcript>> {
+        let started = Instant::now();
+        loop {
+            let snapshot = self.read(path, &mut session_id);
+            if snapshot.is_some() || started.elapsed() >= Duration::from_secs(2) {
+                return snapshot;
+            }
+            let entry = self.entries.lock().ok()?.get(path)?.clone();
+            let entry = entry.lock().ok()?;
+            if entry.mark.is_none() || entry.caught_up || entry.rejected_record {
+                return None;
+            }
+        }
+    }
+
     pub fn read(
         &self,
         path: &Path,

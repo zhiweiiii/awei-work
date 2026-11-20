@@ -1727,6 +1727,7 @@ export default function App() {
                 <SshWorkspace
                   sidebarHost={sshSidebarHost}
                   workspaceHost={sshWorkspaceHost}
+                  projectDirectory={currentOwnerTab?.cwd ?? explorerRoot}
                 />
               </Suspense>
             )}

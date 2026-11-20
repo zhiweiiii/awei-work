@@ -72,6 +72,10 @@ export function normalizePreference(
     return Math.min(max, Math.max(min, integer ? Math.round(value) : value));
   };
   switch (key) {
+    case "diffContextLines":
+      return typeof value === "number" && [4, 8, 16, 32].includes(value)
+        ? value
+        : fallback;
     case "theme":
       return value === "system" || value === "light" || value === "dark"
         ? value

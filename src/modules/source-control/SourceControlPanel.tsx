@@ -714,7 +714,7 @@ function ScopedSourceControlPanel({
     ? `Commit with ${commitShortcut}.`
     : (commitDisabledReason ?? `Commit with ${commitShortcut}.`);
   const PULL_COMMIT_PUSH_HINT =
-    "Pull first (fast-forward only), then commit and push. Nothing is committed if the pull declines.";
+    "自动保存本地修改、拉取并恢复暂存状态，再提交和推送；冲突时保留备份并停止。";
   const commitAndPushHint = canCommit
     ? PULL_COMMIT_PUSH_HINT
     : (commitDisabledReason ?? PULL_COMMIT_PUSH_HINT);
@@ -2162,7 +2162,7 @@ function CommitFeedback({
       />
       <span
         className={cn(
-          "min-w-0 flex-1",
+          "min-w-0 flex-1 select-text cursor-text",
           isError
             ? "max-h-32 overflow-y-auto whitespace-pre-wrap break-words pointer-events-auto"
             : "truncate",
@@ -2171,6 +2171,21 @@ function CommitFeedback({
       >
         {visibleFeedback.message}
       </span>
+      {isError ? (
+        <button
+          type="button"
+          aria-label="复制 Git 错误"
+          title="复制完整错误信息"
+          className="pointer-events-auto shrink-0 self-start rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-foreground hover:bg-foreground/10"
+          onClick={() =>
+            void navigator.clipboard
+              .writeText(visibleFeedback.message)
+              .catch((error) => errorToast("复制 Git 错误失败", error))
+          }
+        >
+          复制
+        </button>
+      ) : null}
       {rewordable && !isError ? (
         <button
           type="button"

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { errorToast } from "@/lib/errorToast";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,11 @@ import {
   type SshListing,
   type TransferProgress,
 } from "@/modules/ssh/api";
+import {
+  rememberSshDirectory,
+  sshFileDirectories,
+  type SshProfile,
+} from "@/modules/ssh/store";
 
 type BrowserState = {
   listing: SshListing | null;
@@ -26,15 +32,27 @@ type BrowserState = {
 const initial = (): BrowserState => ({
   listing: null,
   selected: new Set(),
-  loading: false,
+  loading: true,
   error: "",
 });
 
-export function SshFiles({ id }: { id: number }) {
+type FileEdit = { directory: string; oldName?: string; name: string };
+
+export function SshFiles({
+  id,
+  profile,
+  projectDirectory,
+}: {
+  id: number;
+  profile: SshProfile;
+  projectDirectory: string | null;
+}) {
+  const [localDefault] = useState(() => projectDirectory || undefined);
   const [local, setLocal] = useState<BrowserState>(initial);
   const [remote, setRemote] = useState<BrowserState>(initial);
   const [progress, setProgress] = useState<TransferProgress | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mutating, setMutating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [message, setMessage] = useState("");
   const [overwrite, setOverwrite] = useState(false);
@@ -45,42 +63,90 @@ export function SshFiles({ id }: { id: number }) {
   const generations = useRef({ local: 0, remote: 0 });
   const setters = { local: setLocal, remote: setRemote };
   const load = useCallback(
-    async (side: Side, directory?: string) => {
+    async (side: Side, ...directories: (string | undefined)[]) => {
       const generation = ++generations.current[side];
       const set = side === "local" ? setLocal : setRemote;
       set((before) => ({ ...before, loading: true, error: "" }));
-      try {
-        const listing = await listDirectory(id, side, directory);
-        if (live.current && generations.current[side] === generation)
+      const current = () =>
+        live.current && generations.current[side] === generation;
+      let message = "";
+      for (const directory of new Set(directories)) {
+        try {
+          const listing = await listDirectory(id, side, directory);
+          if (!current()) return;
           set((before) => ({
             ...before,
             listing,
             loading: false,
             selected: new Set(),
           }));
-      } catch (error) {
-        if (live.current && generations.current[side] === generation)
-          set((before) => ({
-            ...before,
-            loading: false,
-            error: String(error),
-          }));
+          void rememberSshDirectory(profile, side, listing.path).catch(
+            (error: unknown) => {
+              if (current()) errorToast("保存 SSH 目录失败", error);
+            },
+          );
+          return;
+        } catch (error) {
+          if (!current()) return;
+          message = String(error);
+        }
       }
+      if (current())
+        set((before) => ({ ...before, loading: false, error: message }));
     },
-    [id],
+    [id, profile],
   );
   useEffect(() => {
     live.current = true;
-    void load("local");
-    void load("remote");
+    let cancelled = false;
+    void sshFileDirectories(profile)
+      .catch((error: unknown): Partial<Record<Side, string>> => {
+        if (!cancelled) errorToast("读取 SSH 目录记录失败", error);
+        return {};
+      })
+      .then((saved) => {
+        if (cancelled) return;
+        void load(
+          "local",
+          saved.local ?? localDefault,
+          localDefault,
+          undefined,
+        );
+        void load("remote", saved.remote, undefined);
+      });
     return () => {
+      cancelled = true;
       live.current = false;
       generations.current.local++;
       generations.current.remote++;
     };
-  }, [load]);
+  }, [load, localDefault, profile]);
+  const edit = async (side: Side, edit: FileEdit) => {
+    if (gate.current) throw new Error("请等待当前文件操作完成");
+    gate.current = true;
+    setMutating(true);
+    try {
+      const { directory, name, oldName } = edit;
+      if (oldName === undefined) {
+        await invoke("ssh_mkdir", { id, side, directory, folderName: name });
+      } else {
+        await invoke("ssh_rename", {
+          id,
+          side,
+          directory,
+          oldName,
+          newName: name,
+        });
+      }
+      if (live.current) await load(side, directory);
+    } finally {
+      gate.current = false;
+      if (live.current) setMutating(false);
+    }
+  };
+  const blocked = busy || mutating || local.loading || remote.loading;
   const transfer = (side: Side) => {
-    if (gate.current || !local.listing || !remote.listing) return;
+    if (gate.current || blocked || !local.listing || !remote.listing) return;
     const names = [...(side === "local" ? local : remote).selected];
     if (!names.length) return;
     const localDirectory = local.listing.path;
@@ -149,7 +215,7 @@ export function SshFiles({ id }: { id: number }) {
         <button
           type="button"
           className="ssh-button"
-          disabled={busy || !local.selected.size || !remote.listing}
+          disabled={blocked || !local.selected.size || !remote.listing}
           onClick={() => (overwrite ? setPending("local") : transfer("local"))}
         >
           上传 →
@@ -157,7 +223,7 @@ export function SshFiles({ id }: { id: number }) {
         <button
           type="button"
           className="ssh-button"
-          disabled={busy || !remote.selected.size || !local.listing}
+          disabled={blocked || !remote.selected.size || !local.listing}
           onClick={() =>
             overwrite ? setPending("remote") : transfer("remote")
           }
@@ -168,7 +234,7 @@ export function SshFiles({ id }: { id: number }) {
           <input
             type="checkbox"
             checked={overwrite}
-            disabled={busy}
+            disabled={busy || mutating}
             onChange={(event) => setOverwrite(event.target.checked)}
           />
           覆盖同名文件
@@ -178,10 +244,10 @@ export function SshFiles({ id }: { id: number }) {
         {(["local", "remote"] as const).map((side) => (
           <FileList
             key={side}
-            id={id}
             side={side}
             state={side === "local" ? local : remote}
-            busy={busy}
+            busy={busy || mutating}
+            onEdit={(request) => edit(side, request)}
             onNavigate={(path) => void load(side, path)}
             onSelect={(name) =>
               setters[side]((before) => {
@@ -260,23 +326,23 @@ export function SshFiles({ id }: { id: number }) {
 }
 
 function FileList({
-  id,
   side,
   state,
   busy,
+  onEdit,
   onNavigate,
   onSelect,
 }: {
-  id: number;
   side: Side;
   state: BrowserState;
   busy: boolean;
+  onEdit: (request: FileEdit) => Promise<void>;
   onNavigate: (path: string) => void;
   onSelect: (name: string) => void;
 }) {
   const [address, setAddress] = useState("");
-  const [folder, setFolder] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<FileEdit | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const gate = useRef(false);
   const mounted = useRef(true);
@@ -291,12 +357,21 @@ function FileList({
     };
   }, []);
   const navigate = (entry: SshEntry) => {
-    if (entry.kind === "dir" && state.listing && !busy)
+    if (entry.kind === "dir" && state.listing && !blocked)
       onNavigate(joinPath(state.listing.path, entry.name));
   };
+  const blocked = busy || state.loading;
+  const onlySelected =
+    state.selected.size === 1 ? [...state.selected][0] : undefined;
+  const startEdit = (oldName?: string) => {
+    if (blocked || !state.listing) return;
+    setError("");
+    setDraft({ directory: state.listing.path, oldName, name: oldName ?? "" });
+  };
+  const rename = draft?.oldName !== undefined;
   return (
     <section className="flex min-h-0 min-w-[190px] flex-col">
-      <div className="flex items-center gap-2 px-2 pt-2">
+      <div className="flex flex-wrap items-center gap-2 px-2 pt-2">
         <span className="font-medium">
           {side === "local" ? "本地" : "远程"}
         </span>
@@ -307,7 +382,7 @@ function FileList({
           type="button"
           title="刷新"
           className="ssh-button"
-          disabled={busy || state.loading}
+          disabled={blocked}
           onClick={() =>
             onNavigate(state.listing?.path ?? (side === "remote" ? "." : ""))
           }
@@ -317,24 +392,34 @@ function FileList({
         <button
           type="button"
           className="ssh-button"
-          disabled={busy || !state.listing}
-          onClick={() => setFolder("")}
+          disabled={blocked || !state.listing}
+          onClick={() => startEdit()}
         >
           新建目录
+        </button>
+        <button
+          type="button"
+          className="ssh-button"
+          disabled={blocked || onlySelected === undefined}
+          onClick={() => {
+            if (onlySelected !== undefined) startEdit(onlySelected);
+          }}
+        >
+          重命名
         </button>
       </div>
       <form
         className="flex gap-1 p-2"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!busy && address.trim()) onNavigate(address.trim());
+          if (!blocked && address.trim()) onNavigate(address.trim());
         }}
       >
         <button
           type="button"
           className="ssh-button"
           title="上级目录"
-          disabled={busy || !state.listing}
+          disabled={blocked || !state.listing}
           onClick={() => {
             if (state.listing)
               onNavigate(parentDirectory(state.listing.path, side));
@@ -346,17 +431,17 @@ function FileList({
           className="ssh-input min-w-0 flex-1"
           aria-label={`${side === "local" ? "本地" : "远程"}路径`}
           value={address}
-          disabled={busy}
+          disabled={blocked}
           onChange={(event) => setAddress(event.target.value)}
           placeholder={side === "local" ? "C:/Users/用户名" : "/home"}
         />
-        <button type="submit" className="ssh-button" disabled={busy}>
+        <button type="submit" className="ssh-button" disabled={blocked}>
           前往
         </button>
       </form>
-      {(state.error || error) && (
+      {state.error && (
         <p role="alert" className="break-words px-2 pb-2 text-destructive">
-          {state.error || error}
+          {state.error}
         </p>
       )}
       <div className="min-h-0 flex-1 overflow-auto" aria-busy={state.loading}>
@@ -377,7 +462,7 @@ function FileList({
                 type="checkbox"
                 checked={state.selected.has(entry.name)}
                 disabled={
-                  busy || (entry.kind !== "file" && entry.kind !== "dir")
+                  blocked || (entry.kind !== "file" && entry.kind !== "dir")
                 }
                 onChange={() => onSelect(entry.name)}
               />
@@ -387,7 +472,10 @@ function FileList({
                 title={entry.name}
                 onDoubleClick={() => navigate(entry)}
                 onClick={() => {
-                  if (!busy && (entry.kind === "file" || entry.kind === "dir"))
+                  if (
+                    !blocked &&
+                    (entry.kind === "file" || entry.kind === "dir")
+                  )
                     onSelect(entry.name);
                 }}
                 onKeyDown={(event) => {
@@ -395,8 +483,15 @@ function FileList({
                     event.preventDefault();
                     navigate(entry);
                   }
+                  if (
+                    event.key === "F2" &&
+                    (entry.kind === "file" || entry.kind === "dir")
+                  ) {
+                    event.preventDefault();
+                    startEdit(entry.name);
+                  }
                 }}
-                disabled={busy}
+                disabled={blocked}
               >
                 {entry.kind === "dir" ? `${entry.name}/` : entry.name}
               </button>
@@ -413,53 +508,62 @@ function FileList({
           ))}
       </div>
       <Dialog
-        open={folder !== null}
+        open={draft !== null}
         onOpenChange={(open) => {
-          if (!open && !creating) setFolder(null);
+          if (!open && !gate.current) setDraft(null);
         }}
       >
         <DialogContent className="gap-4">
           <DialogTitle>
-            新建{side === "local" ? "本地" : "远程"}目录
+            {rename ? "重命名" : "新建"}
+            {side === "local" ? "本地" : "远程"}
+            {rename ? "文件或目录" : "目录"}
           </DialogTitle>
           <DialogDescription className="break-all">
-            {state.listing?.path}
+            {draft?.oldName ?? draft?.directory}
           </DialogDescription>
           <form
             className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
-              if (gate.current || !state.listing || !folder?.trim()) return;
+              if (
+                gate.current ||
+                blocked ||
+                !draft ||
+                !draft.name.trim() ||
+                draft.name === draft.oldName
+              )
+                return;
               gate.current = true;
-              setCreating(true);
-              const directory = state.listing.path;
-              void invoke("ssh_mkdir", {
-                id,
-                side,
-                directory,
-                folderName: folder.trim(),
+              setSubmitting(true);
+              setError("");
+              void onEdit({
+                ...draft,
+                name: rename ? draft.name : draft.name.trim(),
               })
                 .then(() => {
-                  if (mounted.current) {
-                    setFolder(null);
-                    onNavigate(directory);
-                  }
+                  if (mounted.current) setDraft(null);
                 })
                 .catch((error: unknown) => {
                   if (mounted.current) setError(String(error));
                 })
                 .finally(() => {
                   gate.current = false;
-                  if (mounted.current) setCreating(false);
+                  if (mounted.current) setSubmitting(false);
                 });
             }}
           >
             <input
-              aria-label="目录名称"
+              aria-label={rename ? "新名称" : "目录名称"}
               className="ssh-input"
               required
-              value={folder ?? ""}
-              onChange={(event) => setFolder(event.target.value)}
+              value={draft?.name ?? ""}
+              disabled={submitting}
+              onFocus={(event) => event.target.select()}
+              onChange={(event) => {
+                const name = event.target.value;
+                setDraft((before) => before && { ...before, name });
+              }}
             />
             {error && (
               <p role="alert" className="break-words text-xs text-destructive">
@@ -469,9 +573,14 @@ function FileList({
             <button
               type="submit"
               className="ssh-button justify-self-end"
-              disabled={creating}
+              disabled={
+                blocked ||
+                submitting ||
+                !draft?.name.trim() ||
+                draft.name === draft.oldName
+              }
             >
-              {creating ? "创建中…" : "创建"}
+              {submitting ? "处理中…" : rename ? "重命名" : "创建"}
             </button>
           </form>
         </DialogContent>

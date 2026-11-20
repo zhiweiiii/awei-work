@@ -24,10 +24,19 @@ mod opencode;
 
 pub(crate) fn read_file(file: &std::path::Path, agent: &str) -> Option<std::sync::Arc<Transcript>> {
     match agent {
-        "claude" => claude::read_file(file),
-        "codex" => codex::read_file(file),
+        "claude" => claude::read_file(file, false),
+        "codex" => codex::read_file(file, false),
         _ => None,
     }
+}
+
+pub(crate) fn read_activity_at(file: &std::path::Path, agent: &str) -> Option<i64> {
+    let transcript = match agent {
+        "claude" => claude::read_file(file, true),
+        "codex" => codex::read_file(file, true),
+        _ => None,
+    }?;
+    transcript.last_user_message_at()
 }
 
 use serde::Serialize;

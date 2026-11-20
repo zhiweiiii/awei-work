@@ -382,6 +382,7 @@ pub async fn agent_resume_command(
     tauri::async_runtime::spawn_blocking(move || {
         resolve_session_file(&cwd, &agent, Some(&id), UNIX_EPOCH)
             .ok_or("Saved agent session is missing or belongs to another directory")?;
+        log::info!("agent restore: verified agent={agent} session={id}");
         Ok(if agent == "claude" {
             format!("claude --resume {id}")
         } else {
@@ -407,8 +408,10 @@ pub async fn agent_session_last_message_at(
         return Err("Invalid saved agent session".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let file = resolve_session_file(&cwd, &agent, Some(&id), UNIX_EPOCH)?;
-        crate::modules::transcript::read_file(&file, &agent)?.last_user_message_at()
+        let at = resolve_session_file(&cwd, &agent, Some(&id), UNIX_EPOCH)
+            .and_then(|file| crate::modules::transcript::read_activity_at(&file, &agent));
+        log::info!("agent restore: agent={agent} session={id} last_user_message_at={at:?}");
+        at
     })
     .await
     .map_err(|error| error.to_string())

@@ -469,14 +469,13 @@ export function TabBar({
                     }
                   }}
                   className={cn(
-                    "group relative z-[1] h-7 shrink-0 justify-between gap-1.5 rounded-md bg-transparent text-xs transition-colors data-active:bg-transparent dark:data-active:bg-transparent",
+                    "group relative z-[1] h-7 shrink-0 cursor-default justify-between gap-1.5 rounded-md bg-transparent text-xs transition-colors data-active:bg-transparent dark:data-active:bg-transparent",
                     isNew && "terax-tab-in",
                     isActive
                       ? "text-foreground dark:text-foreground"
                       : "text-muted-foreground hover:text-foreground/80 dark:text-muted-foreground",
                     draggingId === t.id && "opacity-50",
-                    onReorder && "touch-none cursor-grab",
-                    draggingId === t.id && "cursor-grabbing",
+                    onReorder && "touch-none",
                     compact
                       ? "px-1.5!"
                       : tabs.length === 1
@@ -642,7 +641,7 @@ export function TabBar({
                         e.stopPropagation();
                         onClose(t.id);
                       }}
-                      className="rounded p-0.5 opacity-0 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-60"
+                      className="cursor-default rounded p-0.5 opacity-0 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-60"
                     >
                       <HugeiconsIcon
                         icon={Cancel01Icon}

@@ -7,6 +7,7 @@ mod activity;
 mod bounds;
 pub mod choices;
 mod layout;
+mod position;
 pub mod reminders;
 pub use reminders::show_reminder;
 #[cfg(windows)]
@@ -19,6 +20,7 @@ pub fn context_changed(app: &tauri::AppHandle, focused: Option<bool>) {
 }
 
 const LABEL: &str = "pet";
+pub(crate) const STATE_LABEL: &str = "pet-canvas-v1";
 const VISIBILITY_EVENT: &str = "awei-work:pet-visibility";
 const LAYOUT_EVENT: &str = "awei-work:pet-layout";
 
@@ -256,35 +258,46 @@ fn surface_work(window: &tauri::WebviewWindow) -> Result<(i32, i32, i32, i32), S
     }
 }
 
-fn initialize_surface(window: &tauri::WebviewWindow) -> Result<(), String> {
-    use tauri_plugin_window_state::{StateFlags, WindowExt};
-    window
-        .restore_state(StateFlags::POSITION | StateFlags::SIZE)
-        .map_err(|e| e.to_string())?;
+fn initialize_surface(
+    window: &tauri::WebviewWindow,
+    saved: Option<position::Anchor>,
+) -> Result<(), String> {
     let position = window.outer_position().map_err(|e| e.to_string())?;
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
-    let size: tauri::PhysicalSize<u32> =
-        tauri::LogicalSize::new(layout::CANVAS_WIDTH, layout::CANVAS_HEIGHT).to_physical(scale);
-    #[cfg(windows)]
-    bounds::apply(
-        window.hwnd().map_err(|e| e.to_string())?.0,
-        (position.x, position.y),
-        (size.width, size.height),
-    )?;
-    #[cfg(not(windows))]
-    window.set_size(size).map_err(|e| e.to_string())?;
-    window
-        .set_min_size(Some(tauri::LogicalSize::new(
-            layout::CANVAS_WIDTH,
-            layout::CANVAS_HEIGHT,
-        )))
-        .map_err(|e| e.to_string())?;
-    window
-        .set_max_size(Some(tauri::LogicalSize::new(
-            layout::CANVAS_WIDTH,
-            layout::CANVAS_HEIGHT,
-        )))
-        .map_err(|e| e.to_string())
+    let anchor =
+        saved.unwrap_or_else(|| position::Anchor::from_origin((position.x, position.y), scale));
+    // Avoid queued window-state geometry writes after reading the restored position.
+    for _ in 0..2 {
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let origin = anchor.origin(scale);
+        let size: tauri::PhysicalSize<u32> =
+            tauri::LogicalSize::new(layout::CANVAS_WIDTH, layout::CANVAS_HEIGHT).to_physical(scale);
+        #[cfg(windows)]
+        bounds::apply(
+            window.hwnd().map_err(|e| e.to_string())?.0,
+            origin,
+            (size.width, size.height),
+        )?;
+        #[cfg(not(windows))]
+        {
+            window
+                .set_position(tauri::PhysicalPosition::new(origin.0, origin.1))
+                .map_err(|e| e.to_string())?;
+            window.set_size(size).map_err(|e| e.to_string())?;
+        }
+        if window.scale_factor().map_err(|e| e.to_string())? == scale {
+            break;
+        }
+    }
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    log::info!(
+        "pet position initialized: restored={} anchor={anchor:?} origin=({}, {}) scale={}",
+        saved.is_some(),
+        position.x,
+        position.y,
+        window.scale_factor().map_err(|e| e.to_string())?
+    );
+    Ok(())
 }
 
 fn arrange_panel(
@@ -330,6 +343,11 @@ fn arrange_panel(
         window
             .set_position(tauri::PhysicalPosition::new(x, y))
             .map_err(|e| e.to_string())?;
+        log::info!(
+            "pet position clamped to work area: origin=({}, {}) target=({x}, {y}) scale={scale}",
+            position.x,
+            position.y
+        );
         position = tauri::PhysicalPosition::new(x, y);
     }
     let mut stored = state.layout.lock().map_err(|_| "pet layout unavailable")?;
@@ -407,10 +425,28 @@ pub async fn open_pet_window(app: tauri::AppHandle, focus: Option<bool>) -> Resu
     let window = if let Some(window) = app.get_webview_window(LABEL) {
         window
     } else {
+        let handle = app.clone();
+        let saved = tauri::async_runtime::spawn_blocking(move || {
+            use tauri_plugin_window_state::AppHandleExt;
+            let path = handle
+                .path()
+                .app_config_dir()
+                .map_err(|error| error.to_string())?
+                .join(handle.filename());
+            position::load(&path)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .unwrap_or_else(|error| {
+            log::warn!("pet position restore failed: {error}");
+            None
+        });
         let mut builder =
             WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("pet.html".into()))
                 .title("awei-work pet")
                 .inner_size(layout::CANVAS_WIDTH, layout::CANVAS_HEIGHT)
+                .min_inner_size(layout::CANVAS_WIDTH, layout::CANVAS_HEIGHT)
+                .max_inner_size(layout::CANVAS_WIDTH, layout::CANVAS_HEIGHT)
                 .resizable(false)
                 .decorations(false)
                 .shadow(false)
@@ -432,7 +468,11 @@ pub async fn open_pet_window(app: tauri::AppHandle, focus: Option<bool>) -> Resu
             );
         }
         let window = builder.build().map_err(|e| e.to_string())?;
-        if let Err(error) = on_window_thread(window.clone(), initialize_surface).await {
+        if let Err(error) = on_window_thread(window.clone(), move |window| {
+            initialize_surface(window, saved)
+        })
+        .await
+        {
             let _ = window.destroy();
             return Err(error);
         }

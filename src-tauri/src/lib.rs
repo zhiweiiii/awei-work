@@ -240,10 +240,10 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
-                .skip_initial_state("pet-canvas-v1")
+                .skip_initial_state(pet::STATE_LABEL)
                 .map_label(|label| {
                     if label == "pet" {
-                        "pet-canvas-v1"
+                        pet::STATE_LABEL
                     } else {
                         label
                     }
@@ -291,6 +291,7 @@ pub fn run() {
             ssh::ssh_credential_save,
             ssh::files::ssh_list_dir,
             ssh::files::ssh_mkdir,
+            ssh::files::ssh_rename,
             ssh::transfer::ssh_transfer,
             ssh::transfer::ssh_transfer_cancel,
             pty::pty_open,

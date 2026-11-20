@@ -1145,15 +1145,8 @@ export function useSourceControlPanel(
         }
       }
 
-      // Pull before committing, and only commit if every repo came back clean.
-      // Committing first and discovering the remote had moved leaves a local
-      // commit that cannot be pushed, which is the state this button exists to
-      // avoid. Fast-forward only on purpose: it either applies cleanly or it
-      // declines, and a merge started under a dirty tree is not something to
-      // begin on the user's behalf.
-      //
-      // Runs after the pre-commit checks so the warning dialog, which
-      // re-invokes this with skipChecks, does not pull twice.
+      // Native pull preserves the local index and stops on restore conflicts.
+      // Only commit after every repository has completed that round trip.
       if (andPush) {
         const pullFailed: string[] = [];
         for (const target of targets) {
@@ -1179,6 +1172,7 @@ export function useSourceControlPanel(
         if (pullFailed.length > 0) {
           setActionError(`拉取失败，未提交。${pullFailed.join("; ")}`);
           await summary.refresh({ remote: "never" });
+          if (multiRepo) await refreshOtherRepos();
           setLocalActionBusy(null);
           return;
         }

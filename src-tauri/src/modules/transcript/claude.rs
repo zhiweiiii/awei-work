@@ -164,13 +164,15 @@ struct ParseState {
     awaiting_result: HashMap<String, (usize, usize)>,
 }
 
-pub(super) fn read_file(file: &Path) -> Option<std::sync::Arc<Transcript>> {
+pub(super) fn read_file(file: &Path, complete: bool) -> Option<std::sync::Arc<Transcript>> {
     static CACHE: OnceLock<super::jsonl::ReaderCache<ParseState>> = OnceLock::new();
-    CACHE
-        .get_or_init(super::jsonl::ReaderCache::new)
-        .read(file, || {
-            Some(file.file_stem()?.to_string_lossy().into_owned())
-        })
+    let cache = CACHE.get_or_init(super::jsonl::ReaderCache::new);
+    let session_id = || Some(file.file_stem()?.to_string_lossy().into_owned());
+    if complete {
+        cache.read_complete(file, session_id)
+    } else {
+        cache.read(file, session_id)
+    }
 }
 
 impl super::jsonl::JsonlState for ParseState {
