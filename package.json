@@ -9,6 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "release:prepare": "node scripts/tauri.mjs release-version",
     "dev": "vite",
     "dev:inspect": "INSPECT=true vite",
     "build": "tsc && vite build",

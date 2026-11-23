@@ -40,7 +40,7 @@ Web 手机桥接是远程 shell，必须设置个人密码，并放在可信网�
 
 统一用仓库包装器 `pnpm tauri build`，不绕过 `scripts/tauri.mjs`。默认只生成 Windows x64 NSIS 手动安装包，不生成 MSI 或未配置签名的更新产物。
 
-包装器对源码、配置及二进制资源生成指纹，相对上一次成功打包发生变化时自动递增 patch，同步 package.json、Cargo.toml、Cargo.lock、tauri.conf.json。失败回滚清单；`.terax-package-state.json` 为忽略的本机状态。tag 模式要求 `v<version>` 与清单一致，不再增号。
+本机打包时，包装器对源码、配置及二进制资源生成指纹。相对上一次成功打包发生变化时自动递增 patch，同步 package.json、Cargo.toml、Cargo.lock 和 tauri.conf.json，失败时回滚清单。`.terax-package-state.json` 为忽略的本机状态。Actions 使用提交中的版本，版本标签须与四份清单一致。
 
 安装包位于 `src-tauri/target/release/bundle/nsis/`。NSIS 为 perMachine，首次安装可选目录，后续恢复原目录；需要提权安装不代表日常运行必须管理员权限。
 
@@ -48,11 +48,12 @@ Web 手机桥接是远程 shell，必须设置个人密码，并放在可信网�
 
 ## 正式发布
 
-1. 确认范围和验收，保存最终代码、文档及统一版本，检查 dirty 工作树。
-2. 完整构建最终源码，核对程序版本、安装包大小和 SHA256；最后补的代码不能用旧包交付。
-3. 提交推送并创建不可移动的版本标签；`v*` 会触发 Release 工作流，手动发布时避免并行任务覆盖已校验附件。
-4. 上传 NSIS 到 draft，核对服务端摘要，公开发布为非预发布；再次公开下载并比对 SHA256。
-5. 在 [issues](issues.md) 简记版本、验证边界及重要变化，详细发布历史留在 GitHub Releases，不重复保存每轮进度表。
+1. 确认范围和验收，更新 [issues](issues.md)。需要增加版本时运行 `pnpm release:prepare`，一次同步四份版本清单。
+2. 提交最终源码及版本，创建同版本的 `v<version>` 标签并推送。Release 工作流在 `windows-latest` 上检查、构建和上传 Windows x64 NSIS 安装包。
+3. 工作流先上传 Release 草稿，核对主程序版本、附件大小和 SHA256，通过后将草稿发布为正式版。在该次 Actions 的 Summary 查阅安装包校验值，在 GitHub Releases 下载。
+4. 需要先验证云端打包时，到 Release 工作流手动运行 `main` 或开发分支。预览安装包在该次运行的 Artifacts 保留 3 天。分支试跑不会创建标签或 Release。
+
+正式发布以版本标签为准。若构建或上传失败，可重跑对应的 Actions。已公开发布的版本使用新版本号更新，原标签和附件保留。可继续使用本机打包生成供本机安装的包。
 
 更新器默认检查本仓库 `zhiweiiii/awei-work` 的正式 NSIS，并打开手动下载页。失败显示错误，不伪装已是最新。
 

@@ -223,10 +223,19 @@ export function preparePackageVersion() {
     }
     return { changed: false, version, originals: null };
   }
+  if (process.env.GITHUB_ACTIONS === "true") {
+    return { changed: false, version, originals: null };
+  }
   const changed = readState()?.fingerprint !== sourceFingerprint(version);
   if (!changed) return { changed: false, version, originals: null };
   const next = nextPatch(version);
   return { changed: true, version: next, originals: updateVersion(next) };
+}
+
+export function advanceReleaseVersion() {
+  const version = nextPatch(readVersion());
+  updateVersion(version);
+  return version;
 }
 
 export function finalizePackageVersion(transaction) {

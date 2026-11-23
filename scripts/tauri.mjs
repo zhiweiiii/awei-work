@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  advanceReleaseVersion,
   finalizePackageVersion,
   preparePackageVersion,
   rollbackPackageVersion,
@@ -10,6 +11,11 @@ import {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const tauriCli = resolve(root, "node_modules", "@tauri-apps", "cli", "tauri.js");
+
+if (args.length === 1 && args[0] === "release-version") {
+  console.log(`awei-work release version: v${advanceReleaseVersion()}`);
+  process.exit(0);
+}
 
 function runTauri() {
   const result = spawnSync(process.execPath, [tauriCli, ...args], {

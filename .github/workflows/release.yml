@@ -6,13 +6,20 @@ on:
       - "v*"
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish-tauri:
     permissions:
       contents: write
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -23,39 +30,97 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check-types
       - name: Configure release channel
         id: channel
         shell: pwsh
         env:
-          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          PUBLIC_KEY: ${{ vars.AWEI_WORK_UPDATER_PUBLIC_KEY || vars.TERAX_UPDATER_PUBLIC_KEY }}
+          SIGNING_KEY: ${{ github.ref_type == 'tag' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          PUBLIC_KEY: ${{ github.ref_type == 'tag' && (vars.AWEI_WORK_UPDATER_PUBLIC_KEY || vars.TERAX_UPDATER_PUBLIC_KEY) || '' }}
         run: |
           $ErrorActionPreference = "Stop"
-          $signed = -not [string]::IsNullOrWhiteSpace($env:SIGNING_KEY)
-          $hasPublic = -not [string]::IsNullOrWhiteSpace($env:PUBLIC_KEY)
-          if ($signed -ne $hasPublic) { throw "Configure both signing key and updater public key, or neither" }
+          $publish = $env:GITHUB_REF_TYPE -eq 'tag'
+          $signed = $publish -and -not [string]::IsNullOrWhiteSpace($env:SIGNING_KEY)
+          $hasPublic = $publish -and -not [string]::IsNullOrWhiteSpace($env:PUBLIC_KEY)
+          if ($signed -ne $hasPublic) { throw 'Configure both signing key and updater public key, or neither' }
           $config = @{ bundle = @{ createUpdaterArtifacts = $signed } }
           if ($signed) { $config.plugins = @{ updater = @{ pubkey = $env:PUBLIC_KEY } } }
           $configPath = Join-Path $env:RUNNER_TEMP "awei-work-release.json"
           $config | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configPath -Encoding utf8
-          "args=--config `"$configPath`"" | Out-File $env:GITHUB_OUTPUT -Append
+          "args=--config `"$($configPath.Replace('\', '/'))`"" | Out-File $env:GITHUB_OUTPUT -Append
           "signed=$($signed.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
-          $tag = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { "build-v__VERSION__" }
+          $tag = if ($publish) { $env:GITHUB_REF_NAME } else { '' }
           "tag=$tag" | Out-File $env:GITHUB_OUTPUT -Append
       - uses: tauri-apps/tauri-action@v1
+        id: build
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ github.ref_type == 'tag' && secrets.GITHUB_TOKEN || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.channel.outputs.signed == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.channel.outputs.signed == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
           VITE_AWEI_WORK_SIGNED_UPDATES: ${{ steps.channel.outputs.signed }}
         with:
           tauriScript: pnpm tauri
           args: ${{ steps.channel.outputs.args }}
           tagName: ${{ steps.channel.outputs.tag }}
-          releaseName: "awei-work __VERSION__"
+          releaseName: ${{ steps.channel.outputs.tag != '' && 'awei-work __VERSION__' || '' }}
           releaseBody: "Download the Windows NSIS installer from the assets."
+          generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: ${{ steps.channel.outputs.signed == 'true' }}
           uploadUpdaterSignatures: ${{ steps.channel.outputs.signed == 'true' }}
           updaterJsonPreferNsis: true
+      - name: Verify installer
+        id: installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $binary = Get-Item -LiteralPath 'src-tauri/target/release/awei-work.exe'
+          $file = Get-Item -LiteralPath "src-tauri/target/release/bundle/nsis/awei-work_${version}_x64-setup.exe"
+          if ($binary.VersionInfo.ProductVersion -ne $version -or $file.Length -eq 0) {
+            throw 'Installer or executable version verification failed'
+          }
+          $digest = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "path=$($file.FullName)" >> $env:GITHUB_OUTPUT
+          "name=$($file.Name)" >> $env:GITHUB_OUTPUT
+          "size=$($file.Length)" >> $env:GITHUB_OUTPUT
+          "digest=sha256:$digest" >> $env:GITHUB_OUTPUT
+          "Installer: $($file.Name) ($($file.Length) bytes), SHA256: $digest" >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload preview installer
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v7
+        with:
+          name: awei-work-windows-preview
+          path: ${{ steps.installer.outputs.path }}
+          if-no-files-found: error
+          retention-days: 3
+      - name: Publish verified release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.build.outputs.releaseId }}
+          INSTALLER_NAME: ${{ steps.installer.outputs.name }}
+          INSTALLER_SIZE: ${{ steps.installer.outputs.size }}
+          INSTALLER_DIGEST: ${{ steps.installer.outputs.digest }}
+          SIGNED_UPDATE: ${{ steps.channel.outputs.signed }}
+        run: |
+          if ($env:RELEASE_ID -notmatch '^\d+$') { throw 'Missing release ID' }
+          $endpoint = "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID"
+          $release = gh api $endpoint | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read release draft' }
+          if (-not $release.draft -or $release.tag_name -ne $env:GITHUB_REF_NAME) {
+            throw 'Expected the matching release draft'
+          }
+          $asset = @($release.assets | Where-Object { $_.name -eq $env:INSTALLER_NAME })
+          if ($asset.Count -ne 1 -or $asset[0].size -ne [long]$env:INSTALLER_SIZE -or $asset[0].digest -ne $env:INSTALLER_DIGEST) {
+            throw 'Uploaded installer does not match the build'
+          }
+          if ($env:SIGNED_UPDATE -eq 'true') {
+            foreach ($name in @('latest.json', "$env:INSTALLER_NAME.sig")) {
+              if ($name -notin $release.assets.name) { throw "Missing signed update file: $name" }
+            }
+          }
+          gh api --method PATCH $endpoint -F draft=false -F prerelease=false -f make_latest=true --jq '.html_url'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the release' }

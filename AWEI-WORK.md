@@ -57,7 +57,7 @@ Web 是远程 shell，个人密码、Argon2id、轮换令牌及可信网络不�
 
 ## 构建与文档
 
-统一 pnpm tauri build，由 scripts/tauri.mjs 管理成功构建指纹和 patch 增号，四份版本清单同步；tag 模式固定 v<version>。默认 Windows x64 NSIS 手动下载并直接覆盖更新，不调用旧卸载程序；未配置本仓库签名时不启用自动安装，不沿用上游公钥。
+统一 pnpm tauri build，由 scripts/tauri.mjs 管理本机成功构建指纹和 patch 增号。正式发布用 pnpm release:prepare 同步四份版本清单，推送 v<version> 标签触发 GitHub Actions 构建、校验和发布。默认 Windows x64 NSIS 手动下载并直接覆盖更新，不调用旧卸载程序；未配置本仓库签名时不启用自动安装，不沿用上游公钥。
 
 每次行为修改更新对应主题文档；修复在 issues 简记原因、结果和验证边界。不重复追加多份审查进度或全文件覆盖表，历史由 Git/Release 保存。与本文件规则冲突时以本文件为准。
 
