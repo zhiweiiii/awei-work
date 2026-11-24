@@ -3,10 +3,10 @@ use serde::Serialize;
 pub(super) const CANVAS_WIDTH: f64 = 796.0;
 pub(super) const CANVAS_HEIGHT: f64 = 1000.0;
 pub(super) const ICON: Rect = Rect {
-    x: 360.0,
-    y: 452.0,
-    width: 76.0,
-    height: 96.0,
+    x: 364.0,
+    y: 457.0,
+    width: 68.0,
+    height: 86.0,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]

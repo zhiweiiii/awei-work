@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { errorToast } from "@/lib/errorToast";
 import {
@@ -37,6 +37,38 @@ const initial = (): BrowserState => ({
 });
 
 type FileEdit = { directory: string; oldName?: string; name: string };
+
+const FILE_ROW =
+  "grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-x-2 px-2 py-1 @min-[20rem]:grid-cols-[1rem_minmax(0,1fr)_3.5rem_7rem]";
+const MODIFIED_CELL =
+  "col-span-2 col-start-2 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground @min-[20rem]:col-span-1 @min-[20rem]:col-start-4 @min-[20rem]:text-right";
+const modifiedFormat = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+const ModifiedTime = memo(function ModifiedTime({
+  seconds,
+}: {
+  seconds: number;
+}) {
+  const date = new Date(seconds * 1000);
+  if (seconds === 0 || !Number.isFinite(date.getTime()))
+    return <span className={MODIFIED_CELL}>未知</span>;
+  return (
+    <time
+      className={MODIFIED_CELL}
+      dateTime={date.toISOString()}
+      title={date.toLocaleString("zh-CN", { hourCycle: "h23" })}
+    >
+      {modifiedFormat.format(date)}
+    </time>
+  );
+});
 
 export function SshFiles({
   id,
@@ -370,7 +402,7 @@ function FileList({
   };
   const rename = draft?.oldName !== undefined;
   return (
-    <section className="flex min-h-0 min-w-[190px] flex-col">
+    <section className="@container flex min-h-0 min-w-[190px] flex-col">
       <div className="flex flex-wrap items-center gap-2 px-2 pt-2">
         <span className="font-medium">
           {side === "local" ? "本地" : "远程"}
@@ -451,11 +483,20 @@ function FileList({
         {!state.loading && !state.listing?.entries.length && !state.error && (
           <p className="px-3 py-2 text-muted-foreground">空目录</p>
         )}
+        {!state.loading && !!state.listing?.entries.length && (
+          <div
+            className={`${FILE_ROW} hidden border-b border-border text-[11px] text-muted-foreground @min-[20rem]:grid`}
+          >
+            <span className="col-start-2">名称</span>
+            <span className="text-right">大小</span>
+            <span className="text-right">修改时间</span>
+          </div>
+        )}
         {!state.loading &&
           state.listing?.entries.map((entry) => (
             <div
               key={entry.name}
-              className={`flex items-center gap-2 px-2 py-1 hover:bg-accent ${state.selected.has(entry.name) ? "bg-accent" : ""}`}
+              className={`${FILE_ROW} grid hover:bg-accent ${state.selected.has(entry.name) ? "bg-accent" : ""}`}
             >
               <input
                 aria-label={`选择 ${entry.name}`}
@@ -468,7 +509,7 @@ function FileList({
               />
               <button
                 type="button"
-                className="min-w-0 flex-1 truncate text-left"
+                className="min-w-0 truncate text-left"
                 title={entry.name}
                 onDoubleClick={() => navigate(entry)}
                 onClick={() => {
@@ -495,7 +536,7 @@ function FileList({
               >
                 {entry.kind === "dir" ? `${entry.name}/` : entry.name}
               </button>
-              <span className="shrink-0 text-[10px] text-muted-foreground">
+              <span className="whitespace-nowrap text-right text-[10px] text-muted-foreground">
                 {entry.kind === "file"
                   ? formatBytes(entry.size)
                   : entry.kind === "link"
@@ -504,6 +545,7 @@ function FileList({
                       ? "特殊"
                       : ""}
               </span>
+              <ModifiedTime seconds={entry.modified} />
             </div>
           ))}
       </div>
