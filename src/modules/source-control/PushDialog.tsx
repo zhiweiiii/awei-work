@@ -20,6 +20,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useRepositoryOperation } from "@/modules/source-control/useRepositoryOperation";
 import { DialogSyncProgress } from "./DialogSyncProgress";
+import { gitDialogLayout } from "./gitDialogLayout";
 import { parseUpstreamRemote } from "./remoteHelpers";
 import type {
   PushAdvancedOptions,
@@ -44,7 +45,7 @@ function PushCommitDiff({ diff }: { diff: PushPlanCommitDiff }) {
   return (
     <div className="ml-5 mt-1">
       {diff.diffText ? (
-        <pre className="max-h-48 overflow-y-auto rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-snug whitespace-pre-wrap break-all text-foreground/85">
+        <pre className="max-h-48 overflow-y-auto rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-snug whitespace-pre-wrap wrap-anywhere text-foreground/85">
           {diff.diffText}
         </pre>
       ) : (
@@ -148,7 +149,7 @@ export function PushDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-2xl"
+        className={cn(gitDialogLayout.content, "sm:max-w-2xl")}
         showCloseButton={!running}
         onEscapeKeyDown={(event) => {
           if (running) event.preventDefault();
@@ -157,7 +158,7 @@ export function PushDialog({
           if (running) event.preventDefault();
         }}
       >
-        <DialogHeader>
+        <DialogHeader className="min-w-0 shrink-0 pr-9">
           <DialogTitle className="flex items-center gap-1.75">
             <HugeiconsIcon icon={ArrowUp01Icon} size={15} strokeWidth={1.9} />
             {count > 0
@@ -171,192 +172,195 @@ export function PushDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {count > 0 ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <label
-                  htmlFor={forceId}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-1.5 text-[10.5px]",
-                    anyForceNeeded
-                      ? "text-muted-foreground"
-                      : "cursor-not-allowed text-muted-foreground/50",
-                  )}
-                >
-                  <Checkbox
-                    id={forceId}
-                    aria-label="Force push with --force-with-lease"
-                    checked={options.force}
-                    disabled={running || !anyForceNeeded}
-                    onCheckedChange={(checked) =>
-                      setOptions((current) => ({
-                        ...current,
-                        force: checked === true,
-                      }))
-                    }
-                    className="size-3.5"
-                  />
-                  Force push (--force-with-lease)
-                </label>
-              </TooltipTrigger>
-              {!anyForceNeeded ? (
-                <TooltipContent
-                  side="bottom"
-                  className="max-w-56 border border-border/70 bg-zinc-950 text-[10.5px] text-zinc-100"
-                >
-                  Repositories are strictly ahead of their remotes; force push
-                  has nothing to force. If a push is rejected, the progress list
-                  offers Force push.
-                </TooltipContent>
-              ) : null}
-            </Tooltip>
-          </div>
-        ) : null}
-
-        <div className="max-h-[45vh] overflow-y-auto">
-          {plan?.entries.map((entry) => {
-            const upstreamRemote =
-              entry.remote ?? parseUpstreamRemote(entry.upstream);
-            return (
-              <div
-                key={entry.repoRoot}
-                className="mb-2 rounded-lg border border-border/50 px-2.5 py-2"
-              >
-                <div className="flex items-baseline gap-2">
-                  <span className="truncate text-[12px] font-medium">
-                    {entry.name}
-                  </span>
-                  <span className="truncate text-[10.5px] text-muted-foreground">
-                    {entry.branch} → {entry.upstream}
-                  </span>
-                  <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                    ↑{entry.ahead}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground/70">
-                    Push to
-                  </span>
-                  <span className="text-[10.5px] text-muted-foreground/60">
-                    {upstreamRemote ?? "No tracking remote"}
-                  </span>
-                </div>
-                <ul className="mt-1 flex flex-col gap-0.5">
-                  {entry.commits.map((c) => {
-                    const diff = entry.diffs.find((d) => d.sha === c.sha);
-                    const diffKey = `${entry.repoRoot}:${c.sha}`;
-                    const expanded = expandedDiffs.has(diffKey);
-                    return (
-                      <li key={c.sha} className="text-[10.5px]">
-                        <div className="flex items-baseline gap-2">
-                          <button
-                            type="button"
-                            disabled={!diff}
-                            onClick={() => {
-                              if (!diff) return;
-                              setExpandedDiffs((current) => {
-                                const next = new Set(current);
-                                if (next.has(diffKey)) next.delete(diffKey);
-                                else next.add(diffKey);
-                                return next;
-                              });
-                            }}
-                            className={cn(
-                              "inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded text-left disabled:cursor-default disabled:opacity-40",
-                              "transition-colors hover:bg-foreground/5",
-                            )}
-                            title={diff ? "Show patch" : "No patch available"}
-                          >
-                            <HugeiconsIcon
-                              icon={ArrowUp01Icon}
-                              size={9}
-                              strokeWidth={2}
-                              className={cn(
-                                "shrink-0 text-muted-foreground transition-transform",
-                                expanded && "rotate-180",
-                              )}
-                            />
-                            <code className="text-muted-foreground/70">
-                              {c.shortSha}
-                            </code>
-                          </button>
-                          <span className="min-w-0 flex-1 truncate">
-                            {c.subject}
-                          </span>
-                        </div>
-                        {expanded && diff ? (
-                          <PushCommitDiff diff={diff} />
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-                {entry.moreCommits > 0 ? (
-                  <div className="mt-1 text-[10px] text-muted-foreground/60">
-                    +{entry.moreCommits} more{" "}
-                    {entry.moreCommits === 1 ? "commit" : "commits"} pushed
-                    (patch not shown)
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-          {plan && plan.skipped.length > 0 ? (
-            <div className="mt-1 rounded-lg bg-muted/40 px-2.5 py-2">
-              <div className="mb-1 text-[10.5px] font-medium text-muted-foreground">
-                Skipped
-              </div>
-              <ul className="flex flex-col gap-0.5">
-                {plan.skipped.map((sk) => (
-                  <li
-                    key={sk.name}
-                    className="flex items-baseline gap-2 text-[10.5px] text-muted-foreground"
+        <div className={cn(gitDialogLayout.body, "space-y-3")}>
+          {count > 0 ? (
+            <div className="rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <label
+                    htmlFor={forceId}
+                    className={cn(
+                      "flex min-w-0 cursor-pointer items-center gap-1.5 text-[10.5px]",
+                      anyForceNeeded
+                        ? "text-muted-foreground"
+                        : "cursor-not-allowed text-muted-foreground/50",
+                    )}
                   >
-                    <span className="min-w-0 flex-1 truncate">{sk.name}</span>
-                    <span className="shrink-0">{sk.reason}</span>
-                  </li>
-                ))}
-              </ul>
+                    <Checkbox
+                      id={forceId}
+                      aria-label="Force push with --force-with-lease"
+                      checked={options.force}
+                      disabled={running || !anyForceNeeded}
+                      onCheckedChange={(checked) =>
+                        setOptions((current) => ({
+                          ...current,
+                          force: checked === true,
+                        }))
+                      }
+                      className="size-3.5 shrink-0"
+                    />
+                    Force push (--force-with-lease)
+                  </label>
+                </TooltipTrigger>
+                {!anyForceNeeded ? (
+                  <TooltipContent
+                    side="bottom"
+                    className="max-w-56 border border-border/70 bg-zinc-950 text-[10.5px] text-zinc-100"
+                  >
+                    Repositories are strictly ahead of their remotes; force push
+                    has nothing to force. If a push is rejected, the progress
+                    list offers Force push.
+                  </TooltipContent>
+                ) : null}
+              </Tooltip>
+            </div>
+          ) : null}
+
+          <div className="min-w-0">
+            {plan?.entries.map((entry) => {
+              const upstreamRemote =
+                entry.remote ?? parseUpstreamRemote(entry.upstream);
+              return (
+                <div
+                  key={entry.repoRoot}
+                  className="mb-2 rounded-lg border border-border/50 px-2.5 py-2"
+                >
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="min-w-0 text-[12px] font-medium">
+                      {entry.name}
+                    </span>
+                    <span className="min-w-0 text-[10.5px] text-muted-foreground">
+                      {entry.branch} → {entry.upstream}
+                    </span>
+                    <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      ↑{entry.ahead}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
+                    <span className="text-[10px] text-muted-foreground/70">
+                      Push to
+                    </span>
+                    <span className="min-w-0 text-[10.5px] text-muted-foreground/60">
+                      {upstreamRemote ?? "No tracking remote"}
+                    </span>
+                  </div>
+                  <ul className="mt-1 flex flex-col gap-0.5">
+                    {entry.commits.map((c) => {
+                      const diff = entry.diffs.find((d) => d.sha === c.sha);
+                      const diffKey = `${entry.repoRoot}:${c.sha}`;
+                      const expanded = expandedDiffs.has(diffKey);
+                      return (
+                        <li key={c.sha} className="text-[10.5px]">
+                          <div className="flex items-baseline gap-2">
+                            <button
+                              type="button"
+                              disabled={!diff}
+                              onClick={() => {
+                                if (!diff) return;
+                                setExpandedDiffs((current) => {
+                                  const next = new Set(current);
+                                  if (next.has(diffKey)) next.delete(diffKey);
+                                  else next.add(diffKey);
+                                  return next;
+                                });
+                              }}
+                              className={cn(
+                                "inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded text-left disabled:cursor-default disabled:opacity-40",
+                                "transition-colors hover:bg-foreground/5",
+                              )}
+                              title={diff ? "Show patch" : "No patch available"}
+                            >
+                              <HugeiconsIcon
+                                icon={ArrowUp01Icon}
+                                size={9}
+                                strokeWidth={2}
+                                className={cn(
+                                  "shrink-0 text-muted-foreground transition-transform",
+                                  expanded && "rotate-180",
+                                )}
+                              />
+                              <code className="text-muted-foreground/70">
+                                {c.shortSha}
+                              </code>
+                            </button>
+                            <span className="min-w-0 flex-1">{c.subject}</span>
+                          </div>
+                          {expanded && diff ? (
+                            <PushCommitDiff diff={diff} />
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {entry.moreCommits > 0 ? (
+                    <div className="mt-1 text-[10px] text-muted-foreground/60">
+                      +{entry.moreCommits} more{" "}
+                      {entry.moreCommits === 1 ? "commit" : "commits"} pushed
+                      (patch not shown)
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+            {plan && plan.skipped.length > 0 ? (
+              <div className="mt-1 rounded-lg bg-muted/40 px-2.5 py-2">
+                <div className="mb-1 text-[10.5px] font-medium text-muted-foreground">
+                  Skipped
+                </div>
+                <ul className="flex flex-col gap-0.5">
+                  {plan.skipped.map((sk) => (
+                    <li
+                      key={sk.name}
+                      className="flex items-baseline gap-2 text-[10.5px] text-muted-foreground"
+                    >
+                      <span className="min-w-0 flex-1">{sk.name}</span>
+                      <span className="min-w-0 max-w-[60%] text-right">
+                        {sk.reason}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+
+          {syncProgress && syncProgress.items.length > 0 ? (
+            <DialogSyncProgress progress={syncProgress} />
+          ) : null}
+          {failed.length > 0 ? (
+            <div
+              className="rounded-lg border border-destructive/30 p-2 text-[11px]"
+              role="status"
+            >
+              <p className="mb-1 text-muted-foreground">
+                Some repositories were not pushed. Close and review a new plan
+                before retrying.
+              </p>
+              {failed.map((item) => (
+                <div key={item.repoRoot} className="mb-1">
+                  <p className="select-text whitespace-pre-wrap text-destructive">
+                    {item.repoRoot}: {item.error}
+                  </p>
+                  {rejected.some(
+                    (rejection) => rejection.repoRoot === item.repoRoot,
+                  ) ? (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      className="h-auto min-h-6 max-w-full whitespace-normal"
+                      disabled={running}
+                      onClick={() => void retryWithForce(item.repoRoot)}
+                    >
+                      Force push (--force-with-lease)
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
             </div>
           ) : null}
         </div>
 
-        {syncProgress && syncProgress.items.length > 0 ? (
-          <DialogSyncProgress progress={syncProgress} />
-        ) : null}
-        {failed.length > 0 ? (
-          <div
-            className="max-h-40 overflow-y-auto rounded-lg border border-destructive/30 p-2 text-[11px]"
-            role="status"
-          >
-            <p className="mb-1 text-muted-foreground">
-              Some repositories were not pushed. Close and review a new plan
-              before retrying.
-            </p>
-            {failed.map((item) => (
-              <div key={item.repoRoot} className="mb-1">
-                <p className="break-all text-destructive">
-                  {item.repoRoot}: {item.error}
-                </p>
-                {rejected.some(
-                  (rejection) => rejection.repoRoot === item.repoRoot,
-                ) ? (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={running}
-                    onClick={() => void retryWithForce(item.repoRoot)}
-                  >
-                    Force push (--force-with-lease)
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        <DialogFooter>
+        <DialogFooter className={gitDialogLayout.footer}>
           <Button
             variant="ghost"
             disabled={running}

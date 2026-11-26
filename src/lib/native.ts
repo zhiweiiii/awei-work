@@ -29,6 +29,8 @@ export type GitRepoInfo = {
   isDetached: boolean;
 };
 
+export type GitCommitMessageModel = "luna" | "codex-default";
+
 export type GitChangedFile = {
   path: string;
   originalPath: string | null;
@@ -313,7 +315,13 @@ export const native = {
   gitGenerateCommitMessage: (
     repoRoots: string[],
     workspace: WorkspaceEnv = currentWorkspaceEnv(),
-  ) => invoke<string>("git_generate_commit_message", { repoRoots, workspace }),
+    model: GitCommitMessageModel = "luna",
+  ) =>
+    invoke<string>("git_generate_commit_message", {
+      repoRoots,
+      workspace,
+      model,
+    }),
   gitDiff: (
     repoRoot: string,
     path: string | null,

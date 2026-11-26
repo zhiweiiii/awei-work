@@ -1,3 +1,4 @@
+import type { GitCommitMessageModel } from "@/lib/native";
 import {
   type EDITOR_THEMES,
   isEditorThemeId,
@@ -101,6 +102,7 @@ export type Preferences = {
   explorerGitDecorations: boolean;
   /** Branch names that must not be force-pushed / rebased without warning. */
   protectedBranches: string[];
+  gitCommitMessageModel: GitCommitMessageModel;
   terminalWebglEnabled: boolean;
   terminalCursorBlink: boolean;
   terminalCursorStyle: TerminalCursorStyle;
@@ -177,6 +179,7 @@ const LEGACY_KEY_AGENT_ENV_PRESETS = "agentEnvPresets";
 const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
 const KEY_PROTECTED_BRANCHES = "protectedBranches";
+const KEY_GIT_COMMIT_MESSAGE_MODEL = "gitCommitMessageModel";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_CURSOR_BLINK = "terminalCursorBlink";
 const KEY_TERMINAL_CURSOR_STYLE = "terminalCursorStyle";
@@ -246,6 +249,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   } as ClaudeGatewayConfig,
   explorerGitDecorations: true,
   protectedBranches: ["main", "master", "develop"],
+  gitCommitMessageModel: "luna",
   terminalWebglEnabled: true,
   terminalCursorBlink: false,
   terminalCursorStyle: "bar",
@@ -369,6 +373,9 @@ export async function loadPreferences(): Promise<Preferences> {
     protectedBranches:
       get<string[]>(KEY_PROTECTED_BRANCHES) ??
       DEFAULT_PREFERENCES.protectedBranches,
+    gitCommitMessageModel:
+      get<GitCommitMessageModel>(KEY_GIT_COMMIT_MESSAGE_MODEL) ??
+      DEFAULT_PREFERENCES.gitCommitMessageModel,
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ??
       DEFAULT_PREFERENCES.terminalWebglEnabled,
@@ -671,6 +678,12 @@ export async function setProtectedBranches(value: string[]): Promise<void> {
   await writePref(KEY_PROTECTED_BRANCHES, value);
 }
 
+export async function setGitCommitMessageModel(
+  value: GitCommitMessageModel,
+): Promise<void> {
+  await writePref(KEY_GIT_COMMIT_MESSAGE_MODEL, value);
+}
+
 export async function setTerminalWebglEnabled(value: boolean): Promise<void> {
   await writePref(KEY_TERMINAL_WEBGL_ENABLED, value);
 }
@@ -835,6 +848,7 @@ export async function onPreferencesChange(
     [KEY_CLAUDE_GATEWAY]: "claudeGateway",
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
     [KEY_PROTECTED_BRANCHES]: "protectedBranches",
+    [KEY_GIT_COMMIT_MESSAGE_MODEL]: "gitCommitMessageModel",
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_CURSOR_BLINK]: "terminalCursorBlink",
     [KEY_TERMINAL_CURSOR_STYLE]: "terminalCursorStyle",

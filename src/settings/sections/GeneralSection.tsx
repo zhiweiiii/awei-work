@@ -23,6 +23,7 @@ import {
   setAgentKeyPassthrough,
   setAutostart,
   setExplorerGitDecorations,
+  setGitCommitMessageModel,
   setRestoreWindowState,
   setTerminalCursorBlink,
   setTerminalCursorStyle,
@@ -88,6 +89,9 @@ export function GeneralSection() {
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
+  );
+  const gitCommitMessageModel = usePreferencesStore(
+    (s) => s.gitCommitMessageModel,
   );
   const agentKeyPassthrough = usePreferencesStore((s) => s.agentKeyPassthrough);
   const terminalWebglEnabled = usePreferencesStore(
@@ -243,6 +247,30 @@ export function GeneralSection() {
               savePreference(setExplorerGitDecorations(v))
             }
           />
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Git</Label>
+        <SettingRow
+          title="提交信息生成模型"
+          description="仅用于生成 Git 提交信息。快速模式用 GPT-6 Luna 的低推理档。"
+        >
+          <Select
+            value={gitCommitMessageModel}
+            onValueChange={(value) => {
+              if (value === "luna" || value === "codex-default")
+                savePreference(setGitCommitMessageModel(value));
+            }}
+          >
+            <SelectTrigger aria-label="提交信息生成模型" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="luna">GPT-6 Luna（快速）</SelectItem>
+              <SelectItem value="codex-default">跟随 Codex 默认</SelectItem>
+            </SelectContent>
+          </Select>
         </SettingRow>
       </div>
 

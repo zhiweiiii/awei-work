@@ -5,6 +5,7 @@ use std::time::Duration;
 use tauri::Manager;
 
 use super::operations;
+use super::types::GitCommitMessageModel;
 use crate::modules::proc::background;
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
@@ -37,11 +38,12 @@ fn staged(
         .collect()
 }
 
-pub fn generate(
+pub(super) fn generate(
     app: &tauri::AppHandle,
     registry: &WorkspaceRegistry,
     roots: Vec<String>,
     workspace: &WorkspaceEnv,
+    model: GitCommitMessageModel,
 ) -> Result<String, String> {
     if roots.is_empty() || roots.len() > 32 {
         return Err("请选择本次提交的仓库".into());
@@ -71,10 +73,17 @@ pub fn generate(
         patches.iter().enumerate().map(|(index, patch)| format!("Repository {}\n```diff\n{patch}\n```", index + 1)).collect::<Vec<_>>().join("\n\n")
     );
     let mut command = Command::new(executable);
+    command.current_dir(&directory).arg("exec");
+    if matches!(model, GitCommitMessageModel::Luna) {
+        command.args([
+            "--model",
+            "gpt-6-luna",
+            "--config",
+            "model_reasoning_effort=low",
+        ]);
+    }
     command
-        .current_dir(&directory)
         .args([
-            "exec",
             "--skip-git-repo-check",
             "--ephemeral",
             "--sandbox",
@@ -85,7 +94,13 @@ pub fn generate(
         ])
         .arg(answer.path())
         .arg("-");
-    background::run(&mut command, prompt, Duration::from_secs(120), || false)?;
+    background::run(&mut command, prompt, Duration::from_secs(120), || false).map_err(|error| {
+        if matches!(model, GitCommitMessageModel::Luna) {
+            format!("{error}\n如果当前 Codex 不支持 GPT-6 Luna，请在「设置 → 通用 → Git」中选择「跟随 Codex 默认」。")
+        } else {
+            error
+        }
+    })?;
     let message = std::fs::read_to_string(answer.path()).map_err(|e| e.to_string())?;
     let message = message.trim();
     if message.is_empty() || message.chars().count() > 50 || message.contains(['\r', '\n']) {

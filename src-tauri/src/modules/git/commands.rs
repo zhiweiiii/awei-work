@@ -2,11 +2,11 @@ use tauri::{AppHandle, Manager};
 
 use crate::modules::git::operations;
 use crate::modules::git::types::{
-    DiscardEntry, GitBranchListResult, GitCloneOptions, GitCommitFileChange, GitCommitResult,
-    GitCompareResult, GitConfigUserResult, GitDiffContentResult, GitDiffResult, GitFetchResult,
-    GitLogEntry, GitLogFilterOptions, GitMergeResult, GitPanelSnapshot, GitPreCommitChecksResult,
-    GitPushOptions, GitPushResult, GitRebaseResult, GitRemoteEntry, GitRepoHead, GitRepoInfo,
-    GitStatusSnapshot, GitTagCreateOptions, GitWorkspaceSnapshot,
+    DiscardEntry, GitBranchListResult, GitCloneOptions, GitCommitFileChange, GitCommitMessageModel,
+    GitCommitResult, GitCompareResult, GitConfigUserResult, GitDiffContentResult, GitDiffResult,
+    GitFetchResult, GitLogEntry, GitLogFilterOptions, GitMergeResult, GitPanelSnapshot,
+    GitPreCommitChecksResult, GitPushOptions, GitPushResult, GitRebaseResult, GitRemoteEntry,
+    GitRepoHead, GitRepoInfo, GitStatusSnapshot, GitTagCreateOptions, GitWorkspaceSnapshot,
 };
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
@@ -27,12 +27,19 @@ where
 pub async fn git_generate_commit_message(
     repo_roots: Vec<String>,
     workspace: Option<WorkspaceEnv>,
+    model: Option<GitCommitMessageModel>,
     app: AppHandle,
 ) -> Result<String, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     let handle = app.clone();
     blocking(app, move |registry| {
-        super::commit_message::generate(&handle, registry, repo_roots, &workspace)
+        super::commit_message::generate(
+            &handle,
+            registry,
+            repo_roots,
+            &workspace,
+            model.unwrap_or_default(),
+        )
     })
     .await
 }

@@ -53,6 +53,7 @@ import {
   COMPACT_ITEM,
 } from "@/modules/explorer/lib/menuItemClass";
 import { joinPath } from "@/modules/explorer/lib/useFileTree";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { LOCAL_WORKSPACE, workspaceScopeKey } from "@/modules/workspace";
 import {
   Alert02Icon,
@@ -86,6 +87,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { PushDialog } from "./PushDialog";
+import { gitDialogLayout } from "./gitDialogLayout";
 import {
   defaultLocalNameForRemote,
   RemoteCheckoutRow,
@@ -737,6 +739,9 @@ function ScopedSourceControlPanel({
   const draftBusy = useCommitMessageDraftStore(
     (state) => draftKey !== null && state.generations.has(draftKey),
   );
+  const gitCommitMessageModel = usePreferencesStore(
+    (s) => s.gitCommitMessageModel,
+  );
   const rowIdPrefix = useId();
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -763,6 +768,7 @@ function ScopedSourceControlPanel({
       const message = await native.gitGenerateCommitMessage(
         roots,
         LOCAL_WORKSPACE,
+        gitCommitMessageModel,
       );
       const applied = useCommitMessageDraftStore
         .getState()
@@ -773,7 +779,13 @@ function ScopedSourceControlPanel({
       useCommitMessageDraftStore.getState().finish(draftKey);
       errorToast(`${label}：生成提交信息失败`, error);
     }
-  }, [draftKey, scm.repoGroups, scm.repo, sourceControl.repo]);
+  }, [
+    draftKey,
+    gitCommitMessageModel,
+    scm.repoGroups,
+    scm.repo,
+    sourceControl.repo,
+  ]);
   const changedCount = scm.fileEntries.length;
   const pushStatusLabel = upstreamBadgeLabel(scm.status?.upstream);
   const hasUpstream = !!scm.status?.upstream;
@@ -1311,7 +1323,9 @@ function ScopedSourceControlPanel({
                       ? "先勾选要提交的变更"
                       : draftBusy
                         ? "Codex 正在生成提交信息"
-                        : "用 Codex 生成提交信息"
+                        : gitCommitMessageModel === "luna"
+                          ? "用 GPT-6 Luna 快速生成提交信息"
+                          : "用 Codex 默认模型生成提交信息"
                   }
                   onClick={() => void generateCommitMessage()}
                 >
@@ -1568,25 +1582,30 @@ function ScopedSourceControlPanel({
           if (!o && !scm.actionBusy) scm.cancelPreCommitWarnings();
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
+        <AlertDialogContent className={gitDialogLayout.content}>
+          <AlertDialogHeader className="shrink-0">
             <AlertDialogTitle>Pre-commit checks found issues</AlertDialogTitle>
             <AlertDialogDescription>
               The repository's pre-commit checks reported the following. Do you
               still want to commit?
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto rounded-md border border-border/50 bg-muted/30 px-2.5 py-2">
+          <ul
+            className={cn(
+              gitDialogLayout.body,
+              "space-y-1 rounded-md border border-border/50 bg-muted/30 px-2.5 py-2",
+            )}
+          >
             {scm.preCommitWarnings?.map((warning) => (
               <li
                 key={warning}
-                className="text-[11px] leading-snug text-muted-foreground"
+                className="select-text text-[11px] leading-snug whitespace-pre-wrap text-muted-foreground"
               >
                 {warning}
               </li>
             ))}
           </ul>
-          <AlertDialogFooter>
+          <AlertDialogFooter className={gitDialogLayout.footer}>
             <AlertDialogCancel
               disabled={!!scm.actionBusy}
               onClick={() => scm.cancelPreCommitWarnings()}
@@ -1612,44 +1631,46 @@ function ScopedSourceControlPanel({
           if (!o && !scm.actionBusy) scm.cancelReword();
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
+        <AlertDialogContent className={gitDialogLayout.content}>
+          <AlertDialogHeader className="shrink-0">
             <AlertDialogTitle>Reword commit</AlertDialogTitle>
             <AlertDialogDescription>
               Rewrite the message of the last commit without touching its
               contents.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <Input
-            aria-label="New commit message"
-            disabled={!!scm.actionBusy}
-            value={scm.rewordMessage}
-            onChange={(event) => scm.setRewordMessage(event.target.value)}
-            onKeyDown={(event) => {
-              if (
-                !event.nativeEvent.isComposing &&
-                event.keyCode !== 229 &&
-                !scm.actionBusy &&
-                event.key === "Enter" &&
-                scm.rewordMessage.trim().length > 0
-              ) {
-                event.preventDefault();
-                void scm.confirmReword();
-              }
-            }}
-            placeholder="New commit message"
-            autoFocus
-            className="rounded-xl"
-          />
-          {scm.actionError ? (
-            <p
-              role="alert"
-              className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs text-destructive"
-            >
-              {scm.actionError}
-            </p>
-          ) : null}
-          <AlertDialogFooter>
+          <div className={cn(gitDialogLayout.body, "space-y-3")}>
+            <Input
+              aria-label="New commit message"
+              disabled={!!scm.actionBusy}
+              value={scm.rewordMessage}
+              onChange={(event) => scm.setRewordMessage(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  !event.nativeEvent.isComposing &&
+                  event.keyCode !== 229 &&
+                  !scm.actionBusy &&
+                  event.key === "Enter" &&
+                  scm.rewordMessage.trim().length > 0
+                ) {
+                  event.preventDefault();
+                  void scm.confirmReword();
+                }
+              }}
+              placeholder="New commit message"
+              autoFocus
+              className="rounded-xl"
+            />
+            {scm.actionError ? (
+              <p
+                role="alert"
+                className="select-text whitespace-pre-wrap text-xs text-destructive"
+              >
+                {scm.actionError}
+              </p>
+            ) : null}
+          </div>
+          <AlertDialogFooter className={gitDialogLayout.footer}>
             <AlertDialogCancel
               disabled={!!scm.actionBusy}
               onClick={() => scm.cancelReword()}

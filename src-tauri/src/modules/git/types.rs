@@ -7,6 +7,14 @@ pub(crate) const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 pub(crate) const MIN_GIT_VERSION: &str = "2.23";
 
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GitCommitMessageModel {
+    #[default]
+    Luna,
+    CodexDefault,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitRepoInfo {

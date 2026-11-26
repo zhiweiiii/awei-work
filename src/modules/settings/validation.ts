@@ -72,6 +72,8 @@ export function normalizePreference(
     return Math.min(max, Math.max(min, integer ? Math.round(value) : value));
   };
   switch (key) {
+    case "gitCommitMessageModel":
+      return value === "luna" || value === "codex-default" ? value : fallback;
     case "diffContextLines":
       return typeof value === "number" && [4, 8, 16, 32].includes(value)
         ? value
