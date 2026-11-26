@@ -145,10 +145,24 @@ export function useRepositoryTargeting({
     );
   }, [spaceId, workspaceKey]);
 
+  const retargetFixedRepository = useCallback(
+    (repoRoot: string) => {
+      if (!isContextCurrent(spaceId, workspaceKey)) return;
+      sourceControlRequestRef.current += 1;
+      setTargets((current) =>
+        repositoryTargetForSpace(current, spaceId, workspaceKey).mode === "fixed"
+          ? setRepositoryTargetForSpace(current, spaceId, workspaceKey, repoRoot)
+          : current,
+      );
+    },
+    [isContextCurrent, spaceId, workspaceKey],
+  );
+
   return {
     repositoryTarget,
     openInSourceControl,
     openGitHistory,
     followActiveContext,
+    retargetFixedRepository,
   };
 }

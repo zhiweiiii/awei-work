@@ -18,7 +18,6 @@ import {
   GitCompareIcon,
   GitMergeIcon,
   MoreVerticalIcon,
-  LinkSquare02Icon,
   RotateClockwiseIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -40,7 +39,6 @@ export function BranchActionsMenu({
   onRebase,
   onCompare,
   onDiff,
-  onBranchUrl,
 }: {
   currentBranch: string | null;
   branches: GitBranchEntry[];
@@ -50,7 +48,6 @@ export function BranchActionsMenu({
   onRebase: (target: string) => void;
   onCompare: (target: string) => void;
   onDiff: () => void;
-  onBranchUrl: () => void;
 }) {
   const targets = branches
     .filter((b) => b.kind !== "remote" && b.name !== currentBranch)
@@ -132,22 +129,6 @@ export function BranchActionsMenu({
             className="shrink-0 text-muted-foreground"
           />
           与工作区比较
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={busy || !currentBranch}
-          onSelect={(event) => {
-            event.preventDefault();
-            onBranchUrl();
-          }}
-          className={ITEM_CLASS}
-        >
-          <HugeiconsIcon
-            icon={LinkSquare02Icon}
-            size={12}
-            strokeWidth={1.75}
-            className="shrink-0 text-muted-foreground"
-          />
-          远程分支地址
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

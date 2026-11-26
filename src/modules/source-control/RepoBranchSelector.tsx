@@ -47,7 +47,6 @@ import {
   RemoteCheckoutRow,
 } from "./RemoteCheckoutRow";
 import { RenameBranchDialog } from "./RenameBranchDialog";
-import { RemoteBranchUrlDialog } from "./RemoteBranchUrlDialog";
 import { WorkingTreeDiffDialog } from "./WorkingTreeDiffDialog";
 import { WorktreeManagerDialog } from "./WorktreeManagerDialog";
 
@@ -80,7 +79,6 @@ type BranchDialog =
   | { kind: "pull-confirm"; repoRoot: string; current: string }
   | { kind: "compare"; repoRoot: string; target: string }
   | { kind: "diff"; repoRoot: string }
-  | { kind: "branch-url"; repoRoot: string; branch: GitBranchEntry }
   | { kind: "worktrees"; repoRoot: string }
   | null;
 
@@ -462,6 +460,12 @@ function ScopedRepoBranchSelector({
     setDialog({ kind: "worktrees", repoRoot });
   }, []);
 
+  const selectRepository = (repoRoot: string) => {
+    setOpen(false);
+    setPendingRemote(null);
+    onChangeRepo(repoRoot);
+  };
+
   if (repos.length === 0) return null;
 
   const activeName = activeRepo ? shortName(activeRepo) : null;
@@ -550,45 +554,61 @@ function ScopedRepoBranchSelector({
                   <DropdownMenuSubTrigger
                     onPointerEnter={() => void loadBranches(repo.repoRoot)}
                     onFocus={() => void loadBranches(repo.repoRoot)}
+                    onClick={(event) => {
+                      // The built-in chevron and its gutter still open the flyout.
+                      if (event.target === event.currentTarget) return;
+                      event.preventDefault();
+                      selectRepository(repo.repoRoot);
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.target !== event.currentTarget ||
+                        (event.key !== "Enter" && event.key !== " ")
+                      ) return;
+                      event.preventDefault();
+                      selectRepository(repo.repoRoot);
+                    }}
                     className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5",
+                      "flex cursor-pointer items-center gap-0 rounded-lg py-0 pl-0 pr-2.5",
                       isActive && "bg-accent text-accent-foreground",
                     )}
                   >
-                    <HugeiconsIcon
-                      icon={FolderGitTwoIcon}
-                      size={13}
-                      strokeWidth={1.75}
-                      className="shrink-0 text-muted-foreground"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs">
-                        {shortName(repo.repoRoot)}
-                      </div>
-                      <div className="truncate text-[10px] text-muted-foreground">
-                        {repo.branch}
-                      </div>
-                    </div>
-                    {count !== undefined && count > 0 && (
-                      <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                        {count}
-                      </span>
-                    )}
-                    <GraphButton
-                      label={`查看 ${shortName(repo.repoRoot)} 的 Commit Graph`}
-                      onClick={() => {
-                        setOpen(false);
-                        onOpenGraph({ repoRoot: repo.repoRoot });
-                      }}
-                    />
-                    {isActive && (
+                    <div className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2.5 pr-2">
                       <HugeiconsIcon
-                        icon={Tick02Icon}
+                        icon={FolderGitTwoIcon}
                         size={13}
-                        strokeWidth={2.25}
-                        className="shrink-0 text-primary"
+                        strokeWidth={1.75}
+                        className="shrink-0 text-muted-foreground"
                       />
-                    )}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs">
+                          {shortName(repo.repoRoot)}
+                        </div>
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          {repo.branch}
+                        </div>
+                      </div>
+                      {count !== undefined && count > 0 && (
+                        <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          {count}
+                        </span>
+                      )}
+                      <GraphButton
+                        label={`查看 ${shortName(repo.repoRoot)} 的 Commit Graph`}
+                        onClick={() => {
+                          setOpen(false);
+                          onOpenGraph({ repoRoot: repo.repoRoot });
+                        }}
+                      />
+                      {isActive && (
+                        <HugeiconsIcon
+                          icon={Tick02Icon}
+                          size={13}
+                          strokeWidth={2.25}
+                          className="shrink-0 text-primary"
+                        />
+                      )}
+                    </div>
                   </DropdownMenuSubTrigger>
                   <BranchFlyout
                     repoRoot={repo.repoRoot}
@@ -612,13 +632,6 @@ function ScopedRepoBranchSelector({
                     onRebase={(target) => handleRebase(repo.repoRoot, target)}
                     onCompare={(target) => handleCompare(repo.repoRoot, target)}
                     onDiff={() => handleDiff(repo.repoRoot)}
-                    onBranchUrl={(branch) =>
-                      setDialog({
-                        kind: "branch-url",
-                        repoRoot: repo.repoRoot,
-                        branch,
-                      })
-                    }
                     onNewBranch={() => handleNewBranch(repo.repoRoot)}
                     onWorktrees={() => handleWorktrees(repo.repoRoot)}
                     onSelectLocal={(name) =>
@@ -757,17 +770,6 @@ function ScopedRepoBranchSelector({
             : ""
         }
       />
-      <RemoteBranchUrlDialog
-        open={dialog?.kind === "branch-url"}
-        onOpenChange={(next) => {
-          if (!next) setDialog(null);
-        }}
-        repoRoot={dialog?.kind === "branch-url" ? dialog.repoRoot : ""}
-        repoName={
-          dialog?.kind === "branch-url" ? shortName(dialog.repoRoot) : ""
-        }
-        branch={dialog?.kind === "branch-url" ? dialog.branch : null}
-      />
       <WorktreeManagerDialog
         open={dialog?.kind === "worktrees"}
         onOpenChange={(next) => {
@@ -803,7 +805,6 @@ function BranchFlyout({
   onRebase,
   onCompare,
   onDiff,
-  onBranchUrl,
   onNewBranch,
   onWorktrees,
   onSelectLocal,
@@ -828,7 +829,6 @@ function BranchFlyout({
   onRebase: (target: string) => void;
   onCompare: (target: string) => void;
   onDiff: () => void;
-  onBranchUrl: (branch: GitBranchEntry) => void;
   onNewBranch: () => void;
   onWorktrees: () => void;
   onSelectLocal: (branchName: string) => void;
@@ -859,10 +859,6 @@ function BranchFlyout({
           onRebase={onRebase}
           onCompare={onCompare}
           onDiff={onDiff}
-          onBranchUrl={() => {
-            const branch = branches.find((item) => item.isHead);
-            if (branch) onBranchUrl(branch);
-          }}
         />
       </DropdownMenuLabel>
       <DropdownMenuItem

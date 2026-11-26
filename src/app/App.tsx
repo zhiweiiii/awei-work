@@ -901,6 +901,7 @@ export default function App() {
     openInSourceControl: handleOpenRepositoryInSourceControl,
     openGitHistory: handleOpenGitHistoryForPath,
     followActiveContext: handleFollowRepositoryContext,
+    retargetFixedRepository,
   } = useRepositoryTargeting({
     spaceId: sourceControlSpaceId,
     workspaceKey: workspaceScopeKey(workspaceEnv),
@@ -1821,7 +1822,10 @@ export default function App() {
                               activeBranch={
                                 multiRepo.summary.status?.branch ?? null
                               }
-                              onChangeRepo={multiRepo.setActiveRepo}
+                              onChangeRepo={(repoRoot) => {
+                                multiRepo.setActiveRepo(repoRoot);
+                                retargetFixedRepository(repoRoot);
+                              }}
                               onRescan={multiRepo.scanRepos}
                               onCheckedOut={() =>
                                 void multiRepo.summary.refresh({
@@ -1970,7 +1974,7 @@ export default function App() {
           <RemoteManagerDialog
             open={remoteManagerOpen}
             onOpenChange={setRemoteManagerOpen}
-            repoRoot={multiRepo.activeRepo}
+            repoRoot={multiRepo.activeRepo ?? sourceControl.repo?.repoRoot ?? null}
             onAdd={multiRepo.addRemote}
             onRemove={multiRepo.removeRemote}
             onSetUrl={multiRepo.setRemoteUrl}
