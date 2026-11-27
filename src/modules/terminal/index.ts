@@ -7,6 +7,8 @@ export {
   leafHasForegroundProcess,
   leafCwd,
   liveLeafIds,
+  leafGatewayRoutes,
+  setLeafGatewayRoutes,
   leafWorkspace,
   leafShellKind,
   leafIdForPty,

@@ -20,24 +20,32 @@ import {
 import { errorToast } from "@/lib/errorToast";
 import {
   leafCwd,
+  leafGatewayRoutes,
   leafHasForegroundProcess,
   liveLeafIds,
   respawnSession,
 } from "@/modules/terminal";
 import {
-  clearGatewayPin,
-  gatewayPin,
-  setGatewayPin,
-} from "@/modules/terminal/lib/gatewayPins";
+  type GatewayAgent,
+  type GatewayRoutes,
+  globalGatewayRoute,
+  resolvedGatewayRoutes,
+  supportsGatewayAgent,
+  syncGatewayConfig,
+} from "@/modules/terminal/lib/gatewayRoutes";
+import { leafIds } from "@/modules/terminal/lib/panes";
+import type { TerminalTab } from "@/modules/tabs";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   type ClaudeApiFormat,
   type ClaudeAuthStyle,
   type ClaudeGatewayConfig,
   type ClaudeProvider,
+  DEFAULT_PREFERENCES,
   EMPTY_MODEL_ROUTES,
   setClaudeGateway,
 } from "@/modules/settings/store";
+import { normalizePreference } from "@/modules/settings/validation";
 import {
   Add01Icon,
   Copy01Icon,
@@ -132,26 +140,40 @@ const PRESETS: { label: string; draft: Draft }[] = [
 ];
 
 type Props = {
-  /** The terminal the status bar is describing. Null when there is none. */
-  leafId: number | null;
+  project: TerminalTab | null;
+  onChangeProjectRoutes: (id: number, routes: GatewayRoutes) => boolean;
 };
+const AGENT_LABELS = { claude: "Claude Code", codex: "Codex" } as const;
+const FORMATS = {
+  anthropic: "Anthropic Messages",
+  openai_chat: "OpenAI Chat",
+  openai_responses: "OpenAI Responses",
+} as const;
 
-/**
- * Choose which relay Claude Code talks to, per terminal.
- *
- * Selecting one points that shell at the local gateway rather than at the relay,
- * so a provider that speaks OpenAI Chat Completions is usable from a client that
- * only speaks Anthropic Messages. The provider id is pinned into the URL, so
- * choosing a different one in another terminal does not redirect this one. As
- * before the variables live in that one shell, so a Claude Code that is already
- * running keeps its old endpoint until it restarts.
- */
-export function ClaudeProviderButton(props: Props) {
-  return <ScopedClaudeProviderButton key={props.leafId ?? "none"} {...props} />;
+async function restartIdleLeaves(leaves: number[]): Promise<number> {
+  let pending = 0;
+  for (const id of leaves) {
+    if (await leafHasForegroundProcess(id)) {
+      pending += 1;
+    } else if (!(await respawnSession(id, leafCwd(id) ?? undefined))) {
+      pending += 1;
+    }
+  }
+  return pending;
 }
 
-function ScopedClaudeProviderButton({ leafId }: Props) {
+export function ModelGatewayButton(props: Props) {
+  return (
+    <ScopedModelGatewayButton key={props.project?.id ?? "none"} {...props} />
+  );
+}
+
+function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
   const config = usePreferencesStore((s) => s.claudeGateway);
+  const [agent, setAgent] = useState<GatewayAgent>("claude");
+  const [scope, setScope] = useState<"project" | "global">(
+    project ? "project" : "global",
+  );
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<GatewayStatus | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -187,29 +209,13 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
     busyRef.current = false;
     if (mountedRef.current) setBusy(false);
   };
-  /* Bumped whenever the mapping changes, because a plain Map cannot tell React
-     that this terminal's badge is now stale. */
-  const [pinRevision, setPinRevision] = useState(0);
-
-  const pinnedId = leafId === null ? undefined : gatewayPin(leafId);
-  /* The relay this terminal actually uses: its own pin, else the app-wide
-     choice. The panel has to answer with the second one too, or a
-     globally-routed terminal would look unrouted. */
-  const globalId = config.global;
-  const globalProvider =
-    config.providers.find((provider) => provider.id === globalId) ?? null;
-  const effectiveId = pinnedId === undefined ? globalId : pinnedId;
-  const effective =
-    config.providers.find((provider) => provider.id === effectiveId) ?? null;
-  const routedGlobally =
-    pinnedId === undefined && effectiveId !== null && effective !== null;
-  /* A provider deleted out from under a terminal leaves the shell pointing at
-     a URL the gateway will answer with 503, which is worth showing. Only a
-     pin can dangle: the global choice is validated against the list when it is
-     read, so it cannot name something that is gone. */
-  const orphaned =
-    pinnedId !== undefined && pinnedId !== null && effective === null;
-
+  const projectRoute = project?.gatewayRoutes?.[agent];
+  const globalId = globalGatewayRoute(config, agent);
+  const effectiveId = projectRoute === undefined ? globalId : projectRoute;
+  const effective = config.providers.find(
+    (provider) =>
+      provider.id === effectiveId && supportsGatewayAgent(provider, agent),
+  );
   const refreshStatus = async () => {
     const request = ++statusRequestRef.current;
     try {
@@ -233,130 +239,28 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
     }
   };
 
-  /** Restart one shell so it picks the routing currently recorded for it.
-   *
-   *  `pin` is what to write first: `undefined` leaves the terminal without an
-   *  opinion (so the global choice applies), a string pins it, `null` opts this
-   *  one terminal out of the global choice. */
-  const applyToTerminal = async (
-    pin: string | null | undefined,
-  ): Promise<boolean> => {
-    if (!mountedRef.current) return false;
-    if (leafId === null) {
-      toast.error("没有可用的命令行");
-      return false;
-    }
-    if (await leafHasForegroundProcess(leafId)) {
-      toast.error("命令行正在运行任务，请结束任务后再切换供应商");
-      return false;
-    }
-    if (!mountedRef.current) return false;
-    const previous = gatewayPin(leafId);
-    if (pin === undefined) clearGatewayPin(leafId);
-    else setGatewayPin(leafId, pin);
-    setPinRevision((n) => n + 1);
-    const restore = () => {
-      if (previous === undefined) clearGatewayPin(leafId);
-      else setGatewayPin(leafId, previous);
-      if (mountedRef.current) setPinRevision((n) => n + 1);
-    };
-    try {
-      if (!(await respawnSession(leafId, leafCwd(leafId) ?? undefined))) {
-        restore();
-        toast.error("命令行正在启动或未能启动，请稍后重试");
-        return false;
-      }
-      return true;
-    } catch (e) {
-      restore();
-      errorToast("重启命令行失败", e);
-      return false;
-    }
-  };
-
-  /** Persist, then hand the same config to Rust so the running gateway agrees
-   *  with what is on disk. */
   const persist = async (next: ClaudeGatewayConfig): Promise<boolean> => {
     try {
-      await setClaudeGateway(next);
-      await invoke("gateway_set_config", { config: next });
+      const normalized = normalizePreference(
+        "claudeGateway",
+        next,
+        DEFAULT_PREFERENCES,
+      ) as ClaudeGatewayConfig;
+      await setClaudeGateway(normalized);
+      usePreferencesStore.setState({ claudeGateway: normalized });
+      await syncGatewayConfig(normalized);
       return true;
-    } catch (e) {
-      errorToast("保存供应商失败", e);
+    } catch (error) {
+      errorToast("保存供应商失败", error);
       return false;
     }
   };
 
-  const select = async (provider: ClaudeProvider) => {
-    if (!startOperation()) return;
-    try {
-      if (leafId === null || (await leafHasForegroundProcess(leafId))) {
-        toast.error("请先选择一个空闲命令行");
-        return;
-      }
-      if (!mountedRef.current) return;
-      // Verify before rewiring the shell: switching to an endpoint that does
-      // not answer would leave a terminal that looks configured and fails on
-      // the first prompt.
-      const probe = await invoke<TestResult>("gateway_test_provider", {
-        provider,
-      });
-      if (!mountedRef.current) return;
-      if (!probe.ok) {
-        setTest(probe);
-        errorToast(`${provider.name} 接口不可用，未切换`, probe.message);
-        return;
-      }
-      const latest = usePreferencesStore.getState().claudeGateway;
-      if (
-        !latest.providers.some(
-          (item) => JSON.stringify(item) === JSON.stringify(provider),
-        )
-      ) {
-        toast.error("供应商配置已变化，请重新选择");
-        return;
-      }
-      if (!(await persist({ ...latest, current: provider.id }))) return;
-      if (!mountedRef.current) return;
-      if (!(await applyToTerminal(provider.id))) return;
-      await refreshStatus();
-      if (!mountedRef.current) return;
-      setOpen(false);
-      toast.success(
-        `本命令行已切换到 ${provider.name}（${probe.latencyMs}ms）`,
-      );
-    } catch (e) {
-      errorToast("切换供应商失败", e);
-    } finally {
-      finishOperation();
-    }
-  };
-
-  const deactivate = async () => {
-    if (!startOperation()) return;
-    try {
-      // An explicit opt-out, not "follow the global choice": 停用 on a terminal
-      // means this shell, so it stays unrouted after everything else was made
-      // global.
-      if (!(await applyToTerminal(null))) return;
-      if (!mountedRef.current) return;
-      setOpen(false);
-      toast.success("本命令行已停用");
-    } finally {
-      finishOperation();
-    }
-  };
-
-  /** Make one relay the default for every command line, now and later.
-   *
-   *  Turning it on writes the preference and clears the pins of the command
-   *  lines that are not running anything, then restarts them, so the answer is
-   *  the same whether a shell already existed or is opened tomorrow. A pin is
-   *  only cleared for an idle terminal: killing a running agent to change its
-   *  endpoint would lose work, and that terminal keeps its own pin anyway.
-   *  Turning it off writes the preference and touches nothing already running;
-   *  new shells simply stop being routed. */
-  const toggleGlobal = async (provider: ClaudeProvider | null) => {
+  const applyRoute = async (
+    scope: "project" | "global",
+    provider: ClaudeProvider | null | undefined,
+  ) => {
+    if (scope === "project" && !project) return;
     if (!startOperation()) return;
     try {
       if (provider) {
@@ -366,62 +270,55 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
         if (!mountedRef.current) return;
         if (!probe.ok) {
           setTest(probe);
-          errorToast(`${provider.name} 接口不可用，未全局启用`, probe.message);
+          errorToast(`${provider.name} 接口不可用`, probe.message);
           return;
         }
       }
       const latest = usePreferencesStore.getState().claudeGateway;
-      const next: ClaudeGatewayConfig = {
-        ...latest,
-        global: provider?.id ?? null,
-      };
-      if (!(await persist(next))) return;
-      if (!mountedRef.current) return;
-
-      if (!provider) {
-        toast.success("已停止全局转发，新命令行不再自动使用供应商");
+      if (
+        provider &&
+        !latest.providers.some(
+          (item) => JSON.stringify(item) === JSON.stringify(provider),
+        )
+      ) {
+        toast.error("供应商配置已变化，请重新选择");
         return;
       }
 
-      let restarted = 0;
-      let skipped = 0;
-      for (const id of liveLeafIds()) {
-        // A pin the user set on purpose outlives this; so does a busy shell.
-        if (gatewayPin(id) !== undefined) continue;
-        if (await leafHasForegroundProcess(id)) {
-          skipped += 1;
-          continue;
-        }
-        if (await respawnSession(id, leafCwd(id) ?? undefined)) restarted += 1;
+      let leaves: number[];
+      if (scope === "global") {
+        const key = agent === "codex" ? "codexGlobal" : "global";
+        const next = { ...latest, [key]: provider?.id ?? null };
+        if (!(await persist(next))) return;
+        leaves = liveLeafIds().filter(
+          (id) => leafGatewayRoutes(id)?.[agent] === undefined,
+        );
+      } else {
+        if (!project) return;
+        await syncGatewayConfig(latest);
+        if (!mountedRef.current) return;
+        const routes = { ...project.gatewayRoutes };
+        if (provider === undefined) delete routes[agent];
+        else routes[agent] = provider?.id ?? null;
+        if (!onChangeProjectRoutes(project.id, routes)) return;
+        leaves = leafIds(project.paneTree);
       }
+
+      const pending = await restartIdleLeaves(leaves);
       if (!mountedRef.current) return;
-      setOpen(false);
+      await refreshStatus();
+      const description =
+        pending > 0 ? `${pending} 个命令行将在重开后应用` : undefined;
       toast.success(
-        skipped > 0
-          ? `已全局使用 ${provider.name}：重启 ${restarted} 个，${skipped} 个正在运行，未改动`
-          : `已全局使用 ${provider.name}：${restarted} 个命令行已切换`,
+        `${AGENT_LABELS[agent]} · ${scope === "project" ? "当前项目" : "全局"}已更新`,
+        { description },
       );
-    } catch (e) {
-      errorToast("设置全局转发失败", e);
+    } catch (error) {
+      errorToast("更新模型代理失败", error);
     } finally {
       finishOperation();
     }
   };
-
-  /** Drop this terminal's own pin and go back to whatever the app-wide choice
-   *  is. Only meaningful when there is one, and only offered then. */
-  const followGlobal = async () => {
-    if (!startOperation()) return;
-    try {
-      if (!(await applyToTerminal(undefined))) return;
-      if (!mountedRef.current) return;
-      setOpen(false);
-      toast.success("本命令行已跟随全局设置");
-    } finally {
-      finishOperation();
-    }
-  };
-
   /** Send one real minimal request. Reachability alone cannot tell a working
    *  configuration from a wrong key, a wrong path or a model the plan does not
    *  include, which is the whole question being asked here. */
@@ -490,15 +387,32 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
         contextWindow: parseContextWindow(draft.contextWindow),
       };
       const latest = usePreferencesStore.getState().claudeGateway;
-      if (draft.id && !latest.providers.some((item) => item.id === draft.id)) {
+      const previous = latest.providers.find((item) => item.id === draft.id);
+      if (draft.id && !previous) {
         toast.error("供应商已删除，无法覆盖");
         return;
       }
       const providers = draft.id
         ? latest.providers.map((p) => (p.id === draft.id ? provider : p))
         : [...latest.providers, provider];
-      if ((await persist({ ...latest, providers })) && mountedRef.current)
+      if (!(await persist({ ...latest, providers }))) return;
+      if (mountedRef.current)
         setDraft((current) => (current === submittedDraft ? null : current));
+      if (
+        previous &&
+        (previous.apiFormat !== provider.apiFormat ||
+          previous.contextWindow !== provider.contextWindow ||
+          (provider.apiFormat === "openai_responses" &&
+            previous.models.default !== provider.models.default))
+      ) {
+        const affected = liveLeafIds().filter((id) => {
+          const routes = resolvedGatewayRoutes(latest, leafGatewayRoutes(id));
+          return routes.claude === provider.id || routes.codex === provider.id;
+        });
+        const pending = await restartIdleLeaves(affected);
+        if (pending > 0)
+          toast.info(`${pending} 个命令行将在重开后应用供应商配置`);
+      }
     } finally {
       finishOperation();
     }
@@ -516,32 +430,48 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
         // behind would keep the setting alive but unnamed, and every new shell
         // would be routed to a provider the gateway cannot resolve.
         global: latest.global === provider.id ? null : latest.global,
+        codexGlobal:
+          latest.codexGlobal === provider.id ? null : latest.codexGlobal,
       });
-      if (mountedRef.current) setPinRevision((n) => n + 1);
     } finally {
       finishOperation();
     }
   };
 
   const canSave =
-    draft !== null && draft.baseUrl.trim() !== "" && draft.apiKey.trim() !== "";
+    draft !== null &&
+    draft.baseUrl.trim() !== "" &&
+    draft.apiKey.trim() !== "" &&
+    (draft.apiFormat !== "openai_responses" ||
+      draft.models.default.trim() !== "");
 
   return (
     <>
-      <ProviderBadge
-        key={pinRevision}
-        name={effective?.name ?? null}
-        global={routedGlobally}
-        orphaned={orphaned}
-      />
+      {(["claude", "codex"] as const).map((kind) => {
+        const override = project?.gatewayRoutes?.[kind];
+        const id =
+          override === undefined ? globalGatewayRoute(config, kind) : override;
+        const provider = config.providers.find(
+          (item) => item.id === id && supportsGatewayAgent(item, kind),
+        );
+        return (
+          <ProviderBadge
+            key={kind}
+            agent={kind}
+            name={provider?.name ?? null}
+            global={override === undefined}
+            orphaned={!!id && !provider}
+          />
+        );
+      })}
       <Popover open={open} onOpenChange={onOpenChange}>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
             size="icon"
             className="size-6 text-muted-foreground hover:text-foreground"
-            title="Claude Code 供应商"
-            aria-label="Claude Code 供应商"
+            title="模型网关"
+            aria-label="模型网关"
           >
             <HugeiconsIcon
               icon={SlidersHorizontalIcon}
@@ -556,19 +486,72 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
           className="max-h-[70vh] w-[26rem] max-w-[calc(100vw-2rem)] overflow-y-auto p-3"
         >
           <div className="flex flex-col gap-2.5">
-            <p className="text-[10.5px] leading-snug text-muted-foreground">
-              切换会发送一次测试请求并重启空闲命令行。运行任务时不可切换。
-            </p>
-            {config.providers.length === 0 && draft === null ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="客户端">
+                <Select
+                  value={agent}
+                  onValueChange={(value) => setAgent(value as GatewayAgent)}
+                  disabled={busy}
+                >
+                  <SelectTrigger
+                    aria-label="代理客户端"
+                    className="h-8 w-full text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="claude">Claude Code</SelectItem>
+                    <SelectItem value="codex">Codex</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="代理范围">
+                <Select
+                  value={scope}
+                  onValueChange={(value) =>
+                    setScope(value as "project" | "global")
+                  }
+                  disabled={busy}
+                >
+                  <SelectTrigger
+                    aria-label="代理范围"
+                    className="h-8 w-full text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="project" disabled={!project}>
+                      当前项目
+                    </SelectItem>
+                    <SelectItem value="global">全局</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+            {scope === "project" && project && (
+              <p
+                className="truncate text-[10.5px] text-muted-foreground"
+                title={project.title}
+              >
+                {project.title}
+              </p>
+            )}
+            {draft === null &&
+            !config.providers.some((provider) =>
+              supportsGatewayAgent(provider, agent),
+            ) ? (
               <p className="text-[10.5px] leading-snug text-muted-foreground">
-                还没有供应商。添加一个中转站，Claude Code
-                就能通过本地网关使用它， OpenAI 格式的接口会自动转换。
+                {agent === "codex"
+                  ? "为 Codex 添加支持 OpenAI Responses 的供应商。"
+                  : "为 Claude Code 添加 Anthropic Messages 或 OpenAI Chat 供应商。"}
               </p>
             ) : null}
 
             {config.providers.map((provider) => {
               const isGlobal = provider.id === globalId;
-              const active = provider.id === effectiveId;
+              const compatible = supportsGatewayAgent(provider, agent);
+              const active =
+                provider.id === (scope === "global" ? globalId : effectiveId);
               return (
                 <div
                   key={provider.id}
@@ -576,9 +559,13 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                 >
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => void select(provider)}
-                    title="在当前命令行切换到这个供应商"
+                    disabled={busy || !compatible}
+                    onClick={() => void applyRoute(scope, provider)}
+                    title={
+                      compatible
+                        ? `为${scope === "project" ? "当前项目" : "全局"}启用 ${AGENT_LABELS[agent]} 代理`
+                        : `此接口格式不适用于 ${AGENT_LABELS[agent]}`
+                    }
                     className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left disabled:opacity-50"
                   >
                     <span
@@ -597,11 +584,9 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                         {isGlobal ? <GlobalTag /> : null}
                       </span>
                       <span className="w-full truncate text-[10px] text-muted-foreground">
-                        {provider.apiFormat === "openai_chat"
-                          ? "OpenAI 格式转换"
-                          : "Anthropic 直通"}
+                        {FORMATS[provider.apiFormat]}
                         {" · "}
-                        {provider.baseUrl}
+                        {provider.models.default || provider.baseUrl}
                         {provider.contextWindow
                           ? ` · ${Math.round(provider.contextWindow / 1000)}k`
                           : ""}
@@ -612,25 +597,6 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                       kept in the tab order and visible on focus: hover-only
                       controls are unreachable from the keyboard. */}
                   <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        void toggleGlobal(isGlobal ? null : provider)
-                      }
-                      title={
-                        isGlobal
-                          ? "停止全局转发，新命令行不再自动使用它"
-                          : "让所有命令行都用这个供应商，包括以后新开的"
-                      }
-                      className={`flex h-6 items-center gap-1 rounded px-1.5 text-[10px] ${
-                        isGlobal
-                          ? "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
-                          : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-                      } disabled:opacity-50`}
-                    >
-                      {isGlobal ? "取消全局" : "全局"}
-                    </button>
                     <button
                       type="button"
                       disabled={busy}
@@ -677,28 +643,37 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                   size="sm"
                   variant="outline"
                   className="h-8 flex-1 justify-start gap-1.5 text-[11px]"
-                  onClick={() => setDraft({ ...EMPTY_DRAFT })}
+                  onClick={() =>
+                    setDraft({
+                      ...EMPTY_DRAFT,
+                      apiFormat:
+                        agent === "codex"
+                          ? "openai_responses"
+                          : EMPTY_DRAFT.apiFormat,
+                    })
+                  }
                 >
                   <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={2} />
                   添加供应商
                 </Button>
-                {PRESETS.map((preset) => (
-                  <Button
-                    key={preset.label}
-                    size="sm"
-                    variant="outline"
-                    className="h-8 shrink-0 text-[11px]"
-                    title={`填好 ${preset.label} 的参数，只需再补一个 API Key`}
-                    onClick={() =>
-                      setDraft({
-                        ...preset.draft,
-                        models: { ...preset.draft.models },
-                      })
-                    }
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
+                {agent === "claude" &&
+                  PRESETS.map((preset) => (
+                    <Button
+                      key={preset.label}
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0 text-[11px]"
+                      title={`填好 ${preset.label} 的参数，只需再补一个 API Key`}
+                      onClick={() =>
+                        setDraft({
+                          ...preset.draft,
+                          models: { ...preset.draft.models },
+                        })
+                      }
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
               </div>
             ) : (
               <div className="flex flex-col gap-2.5 border-t border-border/60 pt-2.5">
@@ -759,6 +734,12 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem
+                          value="openai_responses"
+                          className="text-[11px]"
+                        >
+                          OpenAI Responses（Codex）
+                        </SelectItem>
                         <SelectItem value="openai_chat" className="text-[11px]">
                           OpenAI Chat
                         </SelectItem>
@@ -816,7 +797,7 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                     onChange={(e) =>
                       setDraft({ ...draft, contextWindow: e.target.value })
                     }
-                    placeholder="留空按 Claude Code 默认（200k）"
+                    placeholder="留空采用客户端默认值"
                     spellCheck={false}
                   />
                   <span className="text-[10px] leading-snug text-muted-foreground">
@@ -824,30 +805,30 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                     填大了仍会被上游拒绝。
                   </span>
                 </Field>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["opus", "sonnet", "haiku"] as const).map((role) => (
-                    <Field key={role} label={ROLE_LABELS[role]}>
-                      <Input
-                        aria-label={`${ROLE_LABELS[role]} 模型`}
-                        className="h-8"
-                        value={draft.models[role]}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            models: { ...draft.models, [role]: e.target.value },
-                          })
-                        }
-                        placeholder="沿用默认"
-                        spellCheck={false}
-                      />
-                    </Field>
-                  ))}
-                </div>
-                <p className="text-[10.5px] leading-snug text-muted-foreground">
-                  Opus、Sonnet、Haiku 请求按对应项转发，留空沿用默认。 Claude
-                  Code
-                  直接指定这里已配置的上游模型时保留原名；其他名称走默认模型。
-                </p>
+                {draft.apiFormat !== "openai_responses" && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["opus", "sonnet", "haiku"] as const).map((role) => (
+                      <Field key={role} label={ROLE_LABELS[role]}>
+                        <Input
+                          aria-label={`${ROLE_LABELS[role]} 模型`}
+                          className="h-8"
+                          value={draft.models[role]}
+                          onChange={(e) =>
+                            setDraft({
+                              ...draft,
+                              models: {
+                                ...draft.models,
+                                [role]: e.target.value,
+                              },
+                            })
+                          }
+                          placeholder="沿用默认"
+                          spellCheck={false}
+                        />
+                      </Field>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
@@ -890,35 +871,36 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
                 {status === null
                   ? "网关状态暂不可用"
                   : status.running
-                    ? globalProvider
-                      ? `网关 ${status.origin} · 全局使用 ${globalProvider.name}`
-                      : `网关 ${status.origin} · 只作用于当前命令行`
+                    ? effective
+                      ? `${AGENT_LABELS[agent]} · ${effective.name}`
+                      : `网关 ${status.origin}`
                     : "网关未启动，选择供应商后自动开启"}
               </span>
               <span className="flex shrink-0 items-center gap-1">
-                {/* Offered when the terminal has a pin of its own, which is
-                    what keeps it off the app-wide choice. */}
-                {pinnedId !== undefined && globalProvider ? (
+                {scope === "project" && projectRoute !== undefined ? (
                   <Button
                     size="sm"
                     variant="ghost"
                     className="h-6 shrink-0 px-2 text-[10.5px]"
                     disabled={busy}
-                    title={`取消本命令行的单独设置，跟随全局的 ${globalProvider.name}`}
-                    onClick={() => void followGlobal()}
+                    onClick={() => void applyRoute("project", undefined)}
                   >
                     跟随全局
                   </Button>
                 ) : null}
-                {effectiveId !== null ? (
+                {(
+                  scope === "global"
+                    ? globalId !== null
+                    : effectiveId !== null
+                ) ? (
                   <Button
                     size="sm"
                     variant="ghost"
                     className="h-6 shrink-0 px-2 text-[10.5px]"
                     disabled={busy}
-                    onClick={() => void deactivate()}
+                    onClick={() => void applyRoute(scope, null)}
                   >
-                    停用
+                    {scope === "global" ? "停用全局代理" : "停用项目代理"}
                   </Button>
                 ) : null}
               </span>
@@ -933,12 +915,13 @@ function ScopedClaudeProviderButton({ leafId }: Props) {
 /** What the current terminal is routed through. Absent when it is not routed,
  *  which keeps the bar quiet for anyone not using this. */
 function ProviderBadge({
+  agent,
   name,
   global,
   orphaned,
 }: {
+  agent: GatewayAgent;
   name: string | null;
-  /** Routed by the app-wide choice rather than this terminal's own pin. */
   global: boolean;
   orphaned: boolean;
 }) {
@@ -959,7 +942,9 @@ function ProviderBadge({
               orphaned ? "bg-amber-500" : "bg-emerald-500"
             }`}
           />
-          <span className="truncate">{orphaned ? "供应商已删除" : name}</span>
+          <span className="truncate">
+            {AGENT_LABELS[agent]} · {orphaned ? "供应商不可用" : name}
+          </span>
           {global && !orphaned ? <GlobalTag /> : null}
         </span>
       </TooltipTrigger>
@@ -968,10 +953,10 @@ function ProviderBadge({
         className="max-w-64 text-[11px] leading-relaxed"
       >
         {orphaned
-          ? "这个命令行仍指向一个已删除的供应商，请重新选择一个。"
+          ? "此项目的供应商已删除或接口格式已变更，请重新选择。"
           : global
-            ? `所有命令行都在走 ${name}（全局），包括以后新开的。`
-            : `这个命令行的 Claude Code 正走 ${name}，其他命令行不受影响。`}
+            ? `${AGENT_LABELS[agent]} 全局默认 · ${name}`
+            : `${AGENT_LABELS[agent]} 当前项目 · ${name}`}
       </TooltipContent>
     </Tooltip>
   );
@@ -983,7 +968,7 @@ function GlobalTag() {
   return (
     <span
       className="shrink-0 rounded bg-foreground/10 px-1 text-[9px] font-normal leading-4 text-muted-foreground"
-      title="全局供应商：所有命令行都用它"
+      title="全局默认供应商"
     >
       全局
     </span>

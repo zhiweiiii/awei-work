@@ -6,6 +6,7 @@ import {
 import { Fragment } from "react";
 import type { WorkspaceEnv } from "@/modules/workspace";
 import { useTerminalDropStore } from "./lib/dropStore";
+import type { GatewayRoutes } from "./lib/gatewayRoutes";
 import { focusSlot } from "./lib/rendererPool";
 import { firstLeafSlotId, type PaneNode } from "./lib/panes";
 import { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
@@ -22,6 +23,7 @@ type Props = {
   tabVisible: boolean;
   activeLeafId: number;
   blocks: boolean;
+  gatewayRoutes?: GatewayRoutes;
   onFocusLeaf: (leafId: number) => void;
   getBundle: (leafId: number) => LeafBundle;
 };
@@ -59,6 +61,7 @@ export function PaneTreeView(props: Props) {
           focused={focused}
           initialCwd={node.cwd}
           blocks={blocks}
+          gatewayRoutes={props.gatewayRoutes}
           ref={b.setRef}
           onCwd={b.onCwd}
           onExit={b.onExit}

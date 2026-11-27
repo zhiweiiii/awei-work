@@ -4,55 +4,45 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
-import type { GitBranchEntry } from "@/lib/native";
 import {
   CloudDownloadIcon,
   FileDiffIcon,
-  GitBranchIcon,
   GitCompareIcon,
   GitMergeIcon,
   MoreVerticalIcon,
   RotateClockwiseIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  BRANCH_TARGET_LABELS,
+  type BranchTargetAction,
+} from "./BranchTargetDialog";
 
 const ITEM_CLASS =
   "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[11px]";
 
-/**
- * Operations menu for the currently checked out branch of the repo page:
- * pull, merge, rebase, compare and a working-tree diff. Merge/rebase/compare
- * pick their target branch from a submenu of the other local branches.
- */
+const TARGET_ACTIONS = [
+  { action: "merge", icon: GitMergeIcon },
+  { action: "rebase", icon: RotateClockwiseIcon },
+  { action: "compare", icon: GitCompareIcon },
+] as const;
+
 export function BranchActionsMenu({
   currentBranch,
-  branches,
   busy,
   onPull,
-  onMerge,
-  onRebase,
-  onCompare,
+  onChooseTarget,
   onDiff,
 }: {
   currentBranch: string | null;
-  branches: GitBranchEntry[];
   busy: boolean;
   onPull: () => void;
-  onMerge: (target: string) => void;
-  onRebase: (target: string) => void;
-  onCompare: (target: string) => void;
+  onChooseTarget: (action: BranchTargetAction) => void;
   onDiff: () => void;
 }) {
-  const targets = branches
-    .filter((b) => b.kind !== "remote" && b.name !== currentBranch)
-    .map((b) => b.name);
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -92,27 +82,25 @@ export function BranchActionsMenu({
           />
           拉取 (fast-forward)
         </DropdownMenuItem>
-        <BranchPickerSub
-          label="合并…"
-          icon={GitMergeIcon}
-          targets={targets}
-          busy={busy}
-          onPick={onMerge}
-        />
-        <BranchPickerSub
-          label="变基到…"
-          icon={RotateClockwiseIcon}
-          targets={targets}
-          busy={busy}
-          onPick={onRebase}
-        />
-        <BranchPickerSub
-          label="比较…"
-          icon={GitCompareIcon}
-          targets={targets}
-          busy={busy}
-          onPick={onCompare}
-        />
+        {TARGET_ACTIONS.map(({ action, icon }) => (
+          <DropdownMenuItem
+            key={action}
+            disabled={busy}
+            onSelect={(event) => {
+              event.preventDefault();
+              onChooseTarget(action);
+            }}
+            className={ITEM_CLASS}
+          >
+            <HugeiconsIcon
+              icon={icon}
+              size={12}
+              strokeWidth={1.75}
+              className="shrink-0 text-muted-foreground"
+            />
+            {BRANCH_TARGET_LABELS[action]}…
+          </DropdownMenuItem>
+        ))}
         <DropdownMenuSeparator className="my-0.5 border-t border-border/30" />
         <DropdownMenuItem
           disabled={busy || !currentBranch}
@@ -132,60 +120,5 @@ export function BranchActionsMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-function BranchPickerSub({
-  label,
-  icon,
-  targets,
-  busy,
-  onPick,
-}: {
-  label: string;
-  icon: typeof GitMergeIcon;
-  targets: string[];
-  busy: boolean;
-  onPick: (target: string) => void;
-}) {
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger
-        disabled={busy || targets.length === 0}
-        className={ITEM_CLASS}
-      >
-        <HugeiconsIcon
-          icon={icon}
-          size={12}
-          strokeWidth={1.75}
-          className="shrink-0 text-muted-foreground"
-        />
-        {label}
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent
-        sideOffset={8}
-        className="max-h-56 min-w-36 overflow-y-auto rounded-xl border border-border/40 bg-popover/90 p-1 shadow-lg backdrop-blur-md"
-      >
-        {targets.map((name) => (
-          <DropdownMenuItem
-            disabled={busy}
-            key={name}
-            onSelect={(e) => {
-              e.preventDefault();
-              onPick(name);
-            }}
-            className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-[11px]"
-          >
-            <HugeiconsIcon
-              icon={GitBranchIcon}
-              size={11}
-              strokeWidth={1.75}
-              className="shrink-0 text-muted-foreground"
-            />
-            <span className="truncate">{name}</span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
   );
 }

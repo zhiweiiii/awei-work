@@ -28,6 +28,7 @@ import {
   swapLeafInDirection,
 } from "@/modules/terminal/lib/panes";
 import { disposeSession } from "@/modules/terminal/lib/useTerminalSession";
+import type { GatewayRoutes } from "@/modules/terminal/lib/gatewayRoutes";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // Matches the renderer slot pool size — over this we'd evict an active leaf.
@@ -47,6 +48,7 @@ export type TerminalTab = TabBase & {
   lastUsedAt?: number;
   lastAgentMessageAt?: number;
   lastAgentSession?: AgentResume;
+  gatewayRoutes?: GatewayRoutes;
   autoResume?: boolean;
   id: number;
   kind: "terminal";
@@ -139,6 +141,7 @@ export type TabPatch = Partial<{
   url: string;
   /** Empty string resets a terminal tab to its cwd-derived name. */
   customTitle: string;
+  gatewayRoutes: GatewayRoutes;
   overrideLanguage: string | null;
   /** Only honored on git tab kinds (git-history). */
   repoRoot: string;
@@ -1196,6 +1199,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
               ...x,
               ...(patch.title !== undefined && { title: patch.title }),
               ...(patch.cwd !== undefined && { cwd: patch.cwd }),
+              ...(patch.gatewayRoutes !== undefined && { gatewayRoutes: patch.gatewayRoutes }),
               ...(patch.customTitle !== undefined && {
                 customTitle:
                   patch.customTitle === "" ? undefined : patch.customTitle,

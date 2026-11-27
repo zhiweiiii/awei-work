@@ -1,7 +1,5 @@
 import { create } from "zustand";
-import { setGlobalGatewayProvider } from "@/modules/terminal/lib/gatewayPins";
 import {
-  type ClaudeGatewayConfig,
   DEFAULT_PREFERENCES,
   loadPreferences,
   onPreferencesChange,
@@ -63,11 +61,6 @@ export const usePreferencesStore = create<State>((set) => ({
             return;
           }
           set({ [key]: value } as Partial<State>);
-          if (key === "claudeGateway") {
-            setGlobalGatewayProvider(
-              (value as ClaudeGatewayConfig).global ?? null,
-            );
-          }
           if (key === "backgroundKind" || key === "backgroundImageId") {
             const s = usePreferencesStore.getState();
             mirrorBgFastPath(s.backgroundKind, s.backgroundImageId);
@@ -76,9 +69,6 @@ export const usePreferencesStore = create<State>((set) => ({
         const prefs = { ...(await loadPreferences()), ...changes };
         loading = false;
         set({ ...prefs, hydrated: true });
-        // The spawn path reads this mirror rather than the store, so it has to
-        // be seeded before the first terminal warms.
-        setGlobalGatewayProvider(prefs.claudeGateway.global ?? null);
         mirrorBgFastPath(prefs.backgroundKind, prefs.backgroundImageId);
       } catch (e) {
         unsubscribe?.();

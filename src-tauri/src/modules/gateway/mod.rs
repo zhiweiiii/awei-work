@@ -1,4 +1,4 @@
-//! A loopback Anthropic Messages endpoint that Claude Code can be pointed at.
+//! Loopback endpoints for Claude Code and Codex.
 //!
 //! Claude Code only speaks the Anthropic Messages API, while most relays sell
 //! their capacity through OpenAI Chat Completions. This module accepts the
@@ -187,10 +187,18 @@ pub struct ShellEnv {
     /// once input plus output passes its real, smaller limit. Passing the
     /// window explicitly makes the client compact at the right size instead.
     pub context_window: Option<u32>,
+    pub model: String,
 }
 
-pub fn shell_env(provider_id: &str) -> Option<ShellEnv> {
+pub fn shell_env(provider_id: &str, responses: bool) -> Option<ShellEnv> {
     let provider = config::provider_by_id(provider_id)?;
+    if responses != (provider.api_format == ApiFormat::OpenaiResponses) {
+        return None;
+    }
+    let model = config::strip_context_marker(&provider.models.default).to_string();
+    if responses && model.is_empty() {
+        return None;
+    }
     if !RUNNING.load(Ordering::Acquire) && start().is_err() {
         return None;
     }
@@ -199,6 +207,7 @@ pub fn shell_env(provider_id: &str) -> Option<ShellEnv> {
         base_url: format!("http://{BIND_ADDR}:{port}{PIN_PREFIX}{}", provider.id),
         token: config::token().ok()?,
         context_window: provider.context_window,
+        model,
     })
 }
 
@@ -252,6 +261,103 @@ pub async fn gateway_test_provider(provider: Provider) -> TestResult {
     })
 }
 
+pub(crate) fn generate_text(
+    provider: Provider,
+    selected_model: String,
+    prompt: String,
+) -> Result<String, String> {
+    // The outbound client drives its own runtime from this blocking thread.
+    thread::spawn(move || {
+        let model = provider
+            .text_model(&selected_model)
+            .ok_or("所选转发模型不在供应商的配置中")?;
+        let converts = provider.api_format == ApiFormat::OpenaiChat;
+        let outbound = text_request(&provider, model, &prompt, 256);
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes).map_err(|_| "无法生成转发请求标识")?;
+        let session: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let response = upstream::send(
+            &provider,
+            &outbound,
+            Some(&session),
+            Some(Duration::from_secs(120)),
+        )
+        .map_err(|_| "连接转发供应商失败或请求超时")?;
+        let status = response.status;
+        let is_sse = response.is_sse;
+        let payload = upstream::read_all(response.body).map_err(|_| "读取转发响应失败或超时")?;
+        if !status.is_success() {
+            let mut detail = upstream_error_message(&payload);
+            let key = provider.api_key.trim();
+            if !key.is_empty() {
+                detail = detail.replace(key, "[已隐藏]");
+            }
+            return Err(format!(
+                "转发请求失败（HTTP {}）：{}",
+                status.as_u16(),
+                detail.chars().take(300).collect::<String>()
+            ));
+        }
+        let value = if converts && is_sse {
+            collect_openai_sse(&payload)
+        } else {
+            serde_json::from_slice(&payload).map_err(|_| "转发供应商返回了无法解析的响应")?
+        };
+        let reply = if converts {
+            convert::response_to_anthropic(&value).ok_or("无法读取转发模型的回答")?
+        } else {
+            value
+        };
+        let mut text = String::new();
+        if provider.api_format == ApiFormat::OpenaiResponses {
+            if let Some(output) = reply["output"].as_array() {
+                for item in output {
+                    append_text(&mut text, &item["content"], "output_text");
+                }
+            }
+        } else {
+            append_text(&mut text, &reply["content"], "text");
+        }
+        if text.is_empty() {
+            return Err("转发模型未返回文本".into());
+        }
+        Ok(text)
+    })
+    .join()
+    .map_err(|_| "转发生成任务异常退出")?
+}
+
+fn append_text(output: &mut String, content: &Value, kind: &str) {
+    for part in content.as_array().into_iter().flatten() {
+        if part["type"] == kind {
+            if let Some(text) = part["text"].as_str() {
+                output.push_str(text);
+            }
+        }
+    }
+}
+
+fn text_request(provider: &Provider, model: &str, prompt: &str, max_tokens: u32) -> Value {
+    if provider.api_format == ApiFormat::OpenaiResponses {
+        return json!({
+            "model": model,
+            "max_output_tokens": max_tokens,
+            "input": prompt,
+            "store": false,
+        });
+    }
+    let body = json!({
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{ "role": "user", "content": prompt }],
+    });
+    if provider.api_format == ApiFormat::OpenaiChat {
+        convert::request_to_openai(&body)
+    } else {
+        body
+    }
+}
+
 const PROBE_MAX_TOKENS: u32 = 16;
 
 /// The conversation a request belongs to, which some relays need in order to
@@ -288,23 +394,30 @@ fn fallback_session() -> &'static str {
 fn run_test(provider: &Provider) -> TestResult {
     // Route through the sonnet slot, the one Claude Code uses most, so the test
     // exercises the mapping the user actually configured.
-    let model = provider.upstream_model("claude-sonnet-4-5");
-    let body = json!({
-        "model": model,
-        // Not 1: relays exist that validate `max_tokens > 2` and reject the
-        // probe outright, which would report a working provider as broken.
-        // Still small enough that a test costs nothing worth counting.
-        "max_tokens": PROBE_MAX_TOKENS,
-        "messages": [{ "role": "user", "content": "hi" }],
-    });
-    let outbound = if provider.api_format == ApiFormat::OpenaiChat {
-        convert::request_to_openai(&body)
+    let (model, tokens) = if provider.api_format == ApiFormat::OpenaiResponses {
+        (
+            config::strip_context_marker(&provider.models.default).to_string(),
+            32,
+        )
     } else {
-        body
+        (
+            provider.upstream_model("claude-sonnet-4-5"),
+            PROBE_MAX_TOKENS,
+        )
     };
+    if model.is_empty() {
+        return TestResult {
+            ok: false,
+            latency_ms: 0,
+            http_status: None,
+            model: None,
+            message: "请填写 Codex 使用的模型 ID".into(),
+        };
+    }
+    let outbound = text_request(provider, &model, "hi", tokens);
 
     let started = std::time::Instant::now();
-    let response = match upstream::send(provider, &outbound, Some(fallback_session())) {
+    let response = match upstream::send(provider, &outbound, Some(fallback_session()), None) {
         Ok(response) => response,
         Err(message) => {
             return TestResult {
@@ -321,14 +434,24 @@ fn run_test(provider: &Provider) -> TestResult {
     let payload = upstream::read_all(response.body).unwrap_or_default();
     let latency_ms = started.elapsed().as_millis() as u64;
     if status.is_success() {
-        let answered = serde_json::from_slice::<Value>(&payload)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("model")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            });
+        let reply = serde_json::from_slice::<Value>(&payload).ok();
+        if provider.api_format == ApiFormat::OpenaiResponses
+            && !reply.as_ref().is_some_and(|body| body["output"].is_array())
+        {
+            return TestResult {
+                ok: false,
+                latency_ms,
+                http_status: Some(status.as_u16()),
+                model: Some(model),
+                message: "该端点未返回 OpenAI Responses 格式".into(),
+            };
+        }
+        let answered = reply.and_then(|value| {
+            value
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
         return TestResult {
             ok: true,
             latency_ms,
@@ -406,12 +529,12 @@ fn handle_connection(mut stream: TcpStream) {
     let route = (request.method == "POST")
         .then(|| route_of(&request.path))
         .flatten();
-    let Some(provider_id) = route else {
+    let Some((provider_id, responses)) = route else {
         respond_error(
             &mut stream,
             404,
             "not_found_error",
-            "本地网关只提供 /v1/messages",
+            "本地网关提供 /v1/messages 和 /v1/responses",
         );
         return;
     };
@@ -451,7 +574,20 @@ fn handle_connection(mut stream: TcpStream) {
         return;
     }
 
-    forward(&mut stream, &provider, body);
+    if responses != (provider.api_format == ApiFormat::OpenaiResponses) {
+        respond_error(
+            &mut stream,
+            400,
+            "invalid_request_error",
+            "供应商接口格式与客户端不匹配",
+        );
+        return;
+    }
+    if responses {
+        forward_responses(&mut stream, &provider, body);
+    } else {
+        forward(&mut stream, &provider, body);
+    }
 }
 
 /// Recognize the messages endpoint and pull out the provider a shell was
@@ -461,7 +597,7 @@ fn handle_connection(mut stream: TcpStream) {
 /// choice to the current selection, `None` is not our endpoint. The id rides in
 /// the path because that is the only part of the request Claude Code lets us
 /// preset: it appends `/v1/messages` to whatever ANTHROPIC_BASE_URL holds.
-fn route_of(path: &str) -> Option<Option<&str>> {
+fn route_of(path: &str) -> Option<(Option<&str>, bool)> {
     let path = path.split('?').next().unwrap_or(path);
     let (provider, rest) = match path.strip_prefix(PIN_PREFIX) {
         Some(tail) => {
@@ -475,7 +611,11 @@ fn route_of(path: &str) -> Option<Option<&str>> {
     };
     // Claude Code produces the doubled form when the base URL already ends in
     // `/v1`, which users paste often enough to be worth accepting.
-    matches!(rest, "v1/messages" | "messages" | "v1/v1/messages").then_some(provider)
+    match rest {
+        "v1/messages" | "messages" | "v1/v1/messages" => Some((provider, false)),
+        "v1/responses" | "responses" if provider.is_some() => Some((provider, true)),
+        _ => None,
+    }
 }
 
 const PIN_PREFIX: &str = "/p/";
@@ -587,6 +727,30 @@ fn read_request(stream: &mut TcpStream) -> Result<Option<Request>, String> {
     }))
 }
 
+fn forward_responses(stream: &mut TcpStream, provider: &Provider, body: Value) {
+    let response = match upstream::send(provider, &body, Some(fallback_session()), None) {
+        Ok(response) => response,
+        Err(error) => {
+            respond_error(stream, 502, "api_error", &format!("上游请求失败：{error}"));
+            return;
+        }
+    };
+    let status = response.status;
+    if !status.is_success() {
+        let payload = upstream::read_all(response.body).unwrap_or_default();
+        let mut detail = upstream_error_message(&payload);
+        let key = provider.api_key.trim();
+        if !key.is_empty() {
+            detail = detail.replace(key, "[已隐藏]");
+        }
+        respond_error(stream, status.as_u16(), "api_error", &detail);
+    } else if response.is_sse {
+        stream_response(stream, response, false);
+    } else {
+        buffered_response(stream, response, false, status.as_u16());
+    }
+}
+
 fn forward(stream: &mut TcpStream, provider: &Provider, mut body: Value) {
     let requested = body
         .get("model")
@@ -615,7 +779,7 @@ fn forward(stream: &mut TcpStream, provider: &Provider, mut body: Value) {
         body
     };
 
-    let response = match upstream::send(provider, &outbound, Some(&session)) {
+    let response = match upstream::send(provider, &outbound, Some(&session), None) {
         Ok(response) => response,
         Err(message) => {
             respond_error(

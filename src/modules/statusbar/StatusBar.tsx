@@ -3,7 +3,9 @@ import { Settings01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getVersion } from "@tauri-apps/api/app";
 import { type ReactNode, useEffect, useState } from "react";
-import { ClaudeProviderButton } from "./ClaudeProviderButton";
+import type { TerminalTab } from "@/modules/tabs";
+import type { GatewayRoutes } from "@/modules/terminal/lib/gatewayRoutes";
+import { ModelGatewayButton } from "./ModelGatewayButton";
 import { ClaudeUsageButton } from "./ClaudeUsageButton";
 import { PetToggle } from "./PetToggle";
 import { ScheduleButton } from "./ScheduleButton";
@@ -13,6 +15,8 @@ import { LspStatusPill } from "@/modules/lsp";
 type Props = {
   windowBar: ReactNode;
   onOpenSettings: () => void;
+  project: TerminalTab | null;
+  onChangeProjectRoutes: (id: number, routes: GatewayRoutes) => boolean;
   /** The terminal a queued command runs in. Null when there is none. */
   activeLeafId?: number | null;
   activeFilePath?: string | null;
@@ -21,6 +25,8 @@ type Props = {
 export function StatusBar({
   windowBar,
   onOpenSettings,
+  project,
+  onChangeProjectRoutes,
   activeLeafId,
   activeFilePath,
 }: Props) {
@@ -49,7 +55,7 @@ export function StatusBar({
         <LspStatusPill filePath={activeFilePath ?? null} />
         <PetToggle />
         <ClaudeUsageButton />
-        <ClaudeProviderButton leafId={activeLeafId ?? null} />
+        <ModelGatewayButton project={project} onChangeProjectRoutes={onChangeProjectRoutes} />
         <ScheduleButton leafId={activeLeafId ?? null} />
         <WebStatusBadge />
         <span

@@ -636,7 +636,7 @@ pub fn spawn(
     workspace: WorkspaceEnv,
     blocks: bool,
     shell: Option<String>,
-    gateway_provider: Option<String>,
+    gateway_routes: shell_init::GatewayRoutes,
     on_data: Option<Box<dyn Fn(Vec<u8>) + Send + Sync>>,
     on_exit: Option<Box<dyn Fn(i32) + Send + Sync>>,
 ) -> Result<(Arc<Session>, PtySize), String> {
@@ -658,7 +658,7 @@ pub fn spawn(
     let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
 
     let (cmd, shell_kind) =
-        shell_init::build_command(cwd.clone(), workspace, blocks, shell, gateway_provider)?;
+        shell_init::build_command(cwd.clone(), workspace, blocks, shell, gateway_routes)?;
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
 

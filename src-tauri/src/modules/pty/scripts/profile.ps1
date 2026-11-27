@@ -6,6 +6,27 @@
 if ($global:__TERAX_HOOKS_LOADED) { return }
 $global:__TERAX_HOOKS_LOADED = $true
 
+if ($env:AWEI_WORK_CODEX_GATEWAY) {
+    function global:codex {
+        $cli = Get-Command codex -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $cli) { Write-Error 'Codex CLI is not installed or is missing from PATH.'; return }
+        $options = @(
+            '-c', 'model_provider=awei_work_gateway',
+            '-c', 'model_providers.awei_work_gateway.name=Awei Work Gateway',
+            '-c', "model_providers.awei_work_gateway.base_url=$env:AWEI_WORK_CODEX_GATEWAY",
+            '-c', 'model_providers.awei_work_gateway.env_key=AWEI_WORK_CODEX_GATEWAY_TOKEN',
+            '-c', 'model_providers.awei_work_gateway.wire_api=responses',
+            '-c', 'model_providers.awei_work_gateway.supports_websockets=false',
+            '-c', 'model_providers.awei_work_gateway.capabilities.remote_compaction=unsupported',
+            '-c', "model=$env:AWEI_WORK_CODEX_GATEWAY_MODEL"
+        )
+        if ($env:AWEI_WORK_CODEX_GATEWAY_CONTEXT) {
+            $options += @('-c', "model_context_window=$env:AWEI_WORK_CODEX_GATEWAY_CONTEXT")
+        }
+        & $cli @options @args
+    }
+}
+
 try {
     [Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)

@@ -1,6 +1,7 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { currentWorkspaceEnv, type WorkspaceEnv } from "@/modules/workspace";
 import type { ShellKind } from "@/lib/shellQuote";
+import type { GatewayRoutes } from "./gatewayRoutes";
 
 const textEncoder = new TextEncoder();
 
@@ -36,7 +37,7 @@ export async function openPty(
   blocks?: boolean,
   shell?: string,
   paneId?: number,
-  gatewayProvider?: string,
+  gatewayRoutes?: GatewayRoutes,
   workspace: WorkspaceEnv = currentWorkspaceEnv(),
 ): Promise<PtySession> {
   // Raw bytes — no base64/JSON round-trip; messages arrive as ArrayBuffer.
@@ -71,7 +72,7 @@ export async function openPty(
       blocks: blocks ?? false,
       shell: shell ?? null,
       paneId: paneId ?? null,
-      gatewayProvider: gatewayProvider ?? null,
+      gatewayRoutes: gatewayRoutes ?? null,
       onData,
       onExit,
     });

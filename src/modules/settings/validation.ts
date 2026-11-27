@@ -1,3 +1,4 @@
+import { isGitCommitMessageModel } from "@/lib/gitCommitMessageModel";
 import type { EditorThemeId, Preferences } from "@/modules/settings/store";
 
 export const EDITOR_THEMES = [
@@ -73,7 +74,7 @@ export function normalizePreference(
   };
   switch (key) {
     case "gitCommitMessageModel":
-      return value === "luna" || value === "codex-default" ? value : fallback;
+      return isGitCommitMessageModel(value) ? value : fallback;
     case "diffContextLines":
       return typeof value === "number" && [4, 8, 16, 32].includes(value)
         ? value
@@ -177,7 +178,7 @@ export function normalizePreference(
         : {};
     case "claudeGateway": {
       if (!record(value) || !Array.isArray(value.providers))
-        return { providers: [], current: null, global: null };
+        return { providers: [], current: null, global: null, codexGlobal: null };
       const seen = new Set<string>();
       const providers = value.providers.filter((provider) => {
         if (
@@ -189,7 +190,8 @@ export function normalizePreference(
             (field) => typeof provider[field] === "string",
           ) ||
           (provider.apiFormat !== "anthropic" &&
-            provider.apiFormat !== "openai_chat") ||
+            provider.apiFormat !== "openai_chat" &&
+            provider.apiFormat !== "openai_responses") ||
           (provider.authStyle !== "bearer" &&
             provider.authStyle !== "api_key") ||
           !record(provider.models) ||
@@ -225,8 +227,16 @@ export function normalizePreference(
         // A relay that was deleted while it was the global one must not be
         // resurrected by name: the next shell would then fail every request.
         global:
-          typeof value.global === "string" && seen.has(value.global)
+          providers.some((provider) =>
+            provider.id === value.global && provider.apiFormat !== "openai_responses"
+          )
             ? value.global
+            : null,
+        codexGlobal:
+          providers.some((provider) =>
+            provider.id === value.codexGlobal && provider.apiFormat === "openai_responses"
+          )
+            ? value.codexGlobal
             : null,
       };
     }

@@ -1,3 +1,5 @@
+import type { GitCommitMessageBackend } from "@/lib/gitCommitMessageModel";
+import type { ClaudeProvider } from "@/modules/settings/store";
 import { currentWorkspaceEnv, type WorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -28,8 +30,6 @@ export type GitRepoInfo = {
   upstream: string | null;
   isDetached: boolean;
 };
-
-export type GitCommitMessageModel = "luna" | "codex-default";
 
 export type GitChangedFile = {
   path: string;
@@ -315,12 +315,14 @@ export const native = {
   gitGenerateCommitMessage: (
     repoRoots: string[],
     workspace: WorkspaceEnv = currentWorkspaceEnv(),
-    model: GitCommitMessageModel = "luna",
+    model: GitCommitMessageBackend = "luna",
+    gatewayModel?: { provider: ClaudeProvider; model: string },
   ) =>
     invoke<string>("git_generate_commit_message", {
       repoRoots,
       workspace,
       model,
+      gatewayModel,
     }),
   gitDiff: (
     repoRoot: string,

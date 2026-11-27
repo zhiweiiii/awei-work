@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { errorToast } from "@/lib/errorToast";
+import { gatewayCommitMessageModels } from "@/lib/gitCommitMessageModel";
 import { type GitRepoHead, type GitStatusSnapshot, native } from "@/lib/native";
 import { cn } from "@/lib/utils";
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
@@ -739,9 +740,6 @@ function ScopedSourceControlPanel({
   const draftBusy = useCommitMessageDraftStore(
     (state) => draftKey !== null && state.generations.has(draftKey),
   );
-  const gitCommitMessageModel = usePreferencesStore(
-    (s) => s.gitCommitMessageModel,
-  );
   const rowIdPrefix = useId();
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -761,14 +759,36 @@ function ScopedSourceControlPanel({
         : scm.repo
           ? [scm.repo.repoRoot]
           : [];
-    if (!roots.length || !useCommitMessageDraftStore.getState().begin(draftKey))
-      return;
+    if (!roots.length) return;
     const label = basename(sourceControl.repo?.repoRoot ?? roots[0]);
+    const { gitCommitMessageModel, claudeGateway } =
+      usePreferencesStore.getState();
+    const backend =
+      gitCommitMessageModel === "luna" ||
+      gitCommitMessageModel === "codex-default" ||
+      gitCommitMessageModel === "claude-default"
+        ? gitCommitMessageModel
+        : "gateway";
+    const gatewayModel =
+      backend === "gateway"
+        ? gatewayCommitMessageModels(claudeGateway.providers).find(
+            (option) => option.value === gitCommitMessageModel,
+          )?.gatewayModel
+        : undefined;
+    if (backend === "gateway" && !gatewayModel) {
+      errorToast(
+        `${label}：生成提交信息失败`,
+        "所选转发模型已移除，请在设置中重新选择。",
+      );
+      return;
+    }
+    if (!useCommitMessageDraftStore.getState().begin(draftKey)) return;
     try {
       const message = await native.gitGenerateCommitMessage(
         roots,
         LOCAL_WORKSPACE,
-        gitCommitMessageModel,
+        backend,
+        gatewayModel,
       );
       const applied = useCommitMessageDraftStore
         .getState()
@@ -781,7 +801,6 @@ function ScopedSourceControlPanel({
     }
   }, [
     draftKey,
-    gitCommitMessageModel,
     scm.repoGroups,
     scm.repo,
     sourceControl.repo,
@@ -1322,10 +1341,8 @@ function ScopedSourceControlPanel({
                     stagedCount === 0
                       ? "先勾选要提交的变更"
                       : draftBusy
-                        ? "Codex 正在生成提交信息"
-                        : gitCommitMessageModel === "luna"
-                          ? "用 GPT-6 Luna 快速生成提交信息"
-                          : "用 Codex 默认模型生成提交信息"
+                        ? "正在生成提交信息"
+                        : "用设置中的模型生成提交信息"
                   }
                   onClick={() => void generateCommitMessage()}
                 >

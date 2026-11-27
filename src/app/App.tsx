@@ -92,6 +92,7 @@ import {
   type PaneBounds,
   pasteToLeaf,
   ptyIdForLeaf,
+  setLeafGatewayRoutes,
   submitToLeaf,
   type TerminalPaneHandle,
   useAgentActivityStore,
@@ -99,6 +100,7 @@ import {
   whenSessionReady,
   writeToSession,
 } from "@/modules/terminal";
+import type { GatewayRoutes } from "@/modules/terminal/lib/gatewayRoutes";
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import {
@@ -439,6 +441,16 @@ export default function App() {
     inheritedCwdForNewTab,
   } = useWorkspaceCwd(activeTab, tabs, launchCwd ?? home);
   const currentOwnerTabId = currentOwnerTab?.id ?? null;
+  const changeProjectGatewayRoutes = useCallback(
+    (id: number, routes: GatewayRoutes) => {
+      const project = tabsRef.current.find((tab) => tab.id === id);
+      if (project?.kind !== "terminal") return false;
+      updateTab(id, { gatewayRoutes: routes });
+      for (const leaf of leafIds(project.paneTree)) setLeafGatewayRoutes(leaf, routes);
+      return true;
+    },
+    [updateTab],
+  );
   const headerTabs = useMemo(
     () => headerProjects(tabs, runningProjects, currentOwnerTabId),
     [tabs, runningProjects, currentOwnerTabId],
@@ -1930,6 +1942,8 @@ export default function App() {
                 />
               }
               onOpenSettings={() => void openSettingsWindow()}
+              project={currentOwnerTab}
+              onChangeProjectRoutes={changeProjectGatewayRoutes}
               activeLeafId={activeLeafId}
               activeFilePath={
                 !sshActive && activeTab?.kind === "editor"

@@ -193,7 +193,7 @@ pub async fn pty_open(
     blocks: Option<bool>,
     shell: Option<String>,
     pane_id: Option<u32>,
-    gateway_provider: Option<String>,
+    gateway_routes: Option<shell_init::GatewayRoutes>,
     on_data: Channel<Response>,
     on_exit: Channel<i32>,
 ) -> Result<PtyOpened, String> {
@@ -222,7 +222,7 @@ pub async fn pty_open(
             workspace,
             blocks,
             shell,
-            gateway_provider,
+            gateway_routes.unwrap_or_default(),
             data_cb,
             exit_cb,
         )

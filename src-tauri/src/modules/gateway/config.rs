@@ -15,6 +15,7 @@ pub enum ApiFormat {
     Anthropic,
     /// OpenAI Chat Completions. Bodies are converted in both directions.
     OpenaiChat,
+    OpenaiResponses,
 }
 
 /// How a relay wants its credential presented. It cannot be inferred from the
@@ -107,12 +108,25 @@ pub fn provider_by_id(id: &str) -> Option<Provider> {
 }
 
 impl Provider {
+    pub(super) fn text_model(&self, selected: &str) -> Option<&str> {
+        [
+            &self.models.default,
+            &self.models.sonnet,
+            &self.models.haiku,
+            &self.models.opus,
+        ]
+        .into_iter()
+        .map(|model| strip_context_marker(model))
+        .find(|model| !model.is_empty() && *model == selected)
+    }
+
     /// The upstream URL for an Anthropic Messages request.
     pub fn messages_url(&self) -> String {
         let base = self.base_url.trim().trim_end_matches('/');
         match self.api_format {
             ApiFormat::Anthropic => join_once(base, "/v1/messages"),
             ApiFormat::OpenaiChat => join_once(base, "/chat/completions"),
+            ApiFormat::OpenaiResponses => join_once(base, "/v1/responses"),
         }
     }
 
@@ -178,7 +192,7 @@ fn join_once(base: &str, suffix: &str) -> String {
 
 /// Claude Code appends `[1m]` to declare a 1M context window. It is a client
 /// side marker and upstreams reject it as part of a model name.
-fn strip_context_marker(model: &str) -> &str {
+pub(super) fn strip_context_marker(model: &str) -> &str {
     let model = model.trim();
     let marker = "[1m]";
     if model.len() >= marker.len()

@@ -82,13 +82,15 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 执行前先保存 running，并在执行与完成时核对触发身份。重启发现未确认完成的单次任务标记中断，不自动重发；每日任务记录中断并安排下一次。不承诺模型请求与本地磁盘之间的恰好一次事务。
 
-## Claude 供应商网关
+## 模型网关
 
-`gateway/` 把 Anthropic Messages 转为兼容 OpenAI Chat Completions 或转发 Anthropic。仅监听 `127.0.0.1`，开发 34267、正式 34266，有本地令牌认证；配置只保存，真正使用该网关的 shell 启动时才监听。停止等待 socket 释放后才允许重启。
+右下角「模型网关」可添加供应商，填写名称、Base URL、API Key、接口格式和模型 ID，再选择客户端和代理范围。Claude Code 使用 Anthropic Messages 或 OpenAI Chat。Codex 使用 OpenAI Responses，当前终端需采用 PowerShell 或 Git Bash。发给上游的请求沿用供应商所选的认证方式。网关仅监听 `127.0.0.1`，开发端口 34267、正式端口 34266，使用本地令牌认证。首个使用代理的终端启动时开启监听。
 
-供应商按 leaf 的 `/p/<providerId>` 固定：终端自己的选择优先，没选时用全局选择。全局是持久偏好（`claudeGateway.global`），与只表示"面板里选中项"的 `current` 分开：全局打开后清掉空闲终端的 pin 并重启它们，运行中的终端和不设 pin 的终端保持不动，新开终端一律继承。取消全局只写偏好，不动已在跑的终端。终端可以显式停用来单独退出全局，面板里再用"跟随全局"撤回。删除供应商返回失败，不默默换到别家，并同时清掉指向它的全局选择。pin 不持久化。切换先检查前台任务，保留 cwd 重启，失败恢复 pin；探针是真实小请求，可能有费用。
+两个客户端分别保存全局默认和项目设置。项目代理覆盖该项目的全部分屏，随项目关闭和恢复保存。项目设置优先于全局默认，项目内可停用代理或恢复跟随全局。启用前会向选中的供应商发送一条探测请求。对受影响的空闲命令行，应用保留工作目录并重启终端。运行中的命令行在重新打开后应用设置。每个客户端的网关入口按供应商 ID 固定。
 
-环境在 spawn 时注入 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`，清除冲突的 `ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`，不敲入终端历史。供应商可填上下文窗口，有值时注入 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`，否则清除该变量。这一项是必须的：Claude Code 只认自家模型窗口，遇到中转站的模型名按 200k 处理，压缩触发得太晚，输入加输出超过真实上限后上游直接返回 `400 ... maximum context length`。填模型的真实上限（OpenCode Go 预设填 128000）后按正确尺寸压缩。Claude 的 opus/sonnet/haiku 请求先走角色配置，再回退默认项；直接请求已配置的非 Claude 角色上游模型名时保留该名称，避免旧默认项覆盖显式选择。其他别名仍走默认，默认也为空时原样转发。请求名和映射结果都剥除 `[1m]`。客户端显示的模型名与实际转发目标可能不同，以日志 `gateway: 供应商 请求模型 -> 上游模型` 核对。
+编辑已启用供应商的 Codex 模型 ID、接口格式或上下文窗口后，受影响的空闲命令行同样会重启，以读取最新启动参数。
+
+Claude Code 在启动终端时获得本地网关地址与令牌。Opus、Sonnet 和 Haiku 优先使用对应槽位，其余名称使用供应商默认模型。显式指定已配置的非 Claude 角色模型时保留该模型。Codex 的终端命令通过 CLI 参数设置 Responses 入口和默认模型，令牌从环境变量读取。Codex 的用户配置文件与会话目录由 CLI 自己管理。两者的上下文窗口均可按供应商填写，请求中的 `[1m]` 标记只用于客户端上下文设置。
 
 转换核心 `convert.rs`、`stream.rs`、`sse.rs` 不碰 IO。SSE 处理跨 chunk UTF-8，最终只发一次 message_delta；include_usage、工具参数稳定序列化保留，上游错误/中断不补成功结束。reqwest 在 runtime 内构建/send，并主动安装 ring provider，不能依赖更新插件先初始化。
 

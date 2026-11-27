@@ -16,6 +16,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { errorToast } from "@/lib/errorToast";
+import {
+  gatewayCommitMessageModels,
+  GIT_COMMIT_MESSAGE_MODELS,
+  isGitCommitMessageModel,
+} from "@/lib/gitCommitMessageModel";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
@@ -93,6 +98,11 @@ export function GeneralSection() {
   const gitCommitMessageModel = usePreferencesStore(
     (s) => s.gitCommitMessageModel,
   );
+  const commitProviders = usePreferencesStore((s) => s.claudeGateway.providers);
+  const gatewayModels = gatewayCommitMessageModels(commitProviders);
+  const selectedModelMissing =
+    gitCommitMessageModel.startsWith("gateway-model:") &&
+    !gatewayModels.some((option) => option.value === gitCommitMessageModel);
   const agentKeyPassthrough = usePreferencesStore((s) => s.agentKeyPassthrough);
   const terminalWebglEnabled = usePreferencesStore(
     (s) => s.terminalWebglEnabled,
@@ -254,21 +264,34 @@ export function GeneralSection() {
         <Label>Git</Label>
         <SettingRow
           title="提交信息生成模型"
-          description="仅用于生成 Git 提交信息。快速模式用 GPT-6 Luna 的低推理档。"
+          description="直接选择用于生成提交信息的模型。转发选项来自右下角的供应商配置。"
         >
           <Select
             value={gitCommitMessageModel}
             onValueChange={(value) => {
-              if (value === "luna" || value === "codex-default")
+              if (isGitCommitMessageModel(value))
                 savePreference(setGitCommitMessageModel(value));
             }}
           >
-            <SelectTrigger aria-label="提交信息生成模型" className="w-44">
+            <SelectTrigger aria-label="提交信息生成模型" className="w-52 max-w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="luna">GPT-6 Luna（快速）</SelectItem>
-              <SelectItem value="codex-default">跟随 Codex 默认</SelectItem>
+              {Object.entries(GIT_COMMIT_MESSAGE_MODELS).map(([value, label]) => (
+                <SelectItem value={value} key={value}>
+                  {label}
+                </SelectItem>
+              ))}
+              {gatewayModels.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+              {selectedModelMissing && (
+                <SelectItem value={gitCommitMessageModel} disabled>
+                  所选转发模型已移除
+                </SelectItem>
+              )}
             </SelectContent>
           </Select>
         </SettingRow>

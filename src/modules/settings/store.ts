@@ -1,4 +1,4 @@
-import type { GitCommitMessageModel } from "@/lib/native";
+import type { GitCommitMessageModel } from "@/lib/gitCommitMessageModel";
 import {
   type EDITOR_THEMES,
   isEditorThemeId,
@@ -246,6 +246,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     providers: [],
     current: null,
     global: null,
+    codexGlobal: null,
   } as ClaudeGatewayConfig,
   explorerGitDecorations: true,
   protectedBranches: ["main", "master", "develop"],
@@ -562,7 +563,7 @@ export async function setCompactFolders(value: boolean): Promise<void> {
 }
 
 /** The wire format a relay speaks. Mirrors `gateway::config::ApiFormat`. */
-export type ClaudeApiFormat = "anthropic" | "openai_chat";
+export type ClaudeApiFormat = "anthropic" | "openai_chat" | "openai_responses";
 
 /** How a relay wants its credential presented. Mirrors
  *  `gateway::config::AuthStyle`. It cannot be inferred from the format:
@@ -613,6 +614,7 @@ export type ClaudeGatewayConfig = {
    *  shell from now on" is exactly the kind of answer that has to outlive the
    *  session. */
   global: string | null;
+  codexGlobal: string | null;
 };
 
 type LegacyAgentEnvPreset = {
@@ -638,7 +640,7 @@ function migrateAgentEnvPresets(
   presets: LegacyAgentEnvPreset[] | undefined,
 ): ClaudeGatewayConfig {
   if (!Array.isArray(presets) || !presets.length)
-    return { providers: [], current: null, global: null };
+    return { providers: [], current: null, global: null, codexGlobal: null };
   const providers = presets
     .filter(
       (preset) =>
@@ -659,7 +661,7 @@ function migrateAgentEnvPresets(
     }));
   return normalizePreference(
     "claudeGateway",
-    { providers, current: null, global: null },
+    { providers, current: null, global: null, codexGlobal: null },
     DEFAULT_PREFERENCES,
   ) as ClaudeGatewayConfig;
 }

@@ -21,17 +21,23 @@ pub enum ShellQuoteKind {
     Unknown,
 }
 
+#[derive(Default, serde::Deserialize)]
+pub struct GatewayRoutes {
+    pub claude: Option<String>,
+    pub codex: Option<String>,
+}
+
 pub fn build_command(
     cwd: Option<String>,
     workspace: WorkspaceEnv,
     blocks: bool,
     shell: Option<String>,
-    gateway_provider: Option<String>,
+    gateway_routes: GatewayRoutes,
 ) -> Result<(CommandBuilder, ShellQuoteKind), String> {
     let shell = sanitize_shell_override(shell);
     #[cfg(windows)]
     {
-        windows::build(cwd, workspace, blocks, shell, gateway_provider)
+        windows::build(cwd, workspace, blocks, shell, gateway_routes)
     }
 }
 
@@ -104,14 +110,12 @@ fn ensure_utf8_locale(cmd: &mut CommandBuilder) {
 /// ANTHROPIC_API_KEY is sent as `x-api-key`, which the gateway reads in
 /// preference to the Bearer header, so one left in the user's profile would
 /// outrank the token set here and turn every request into a 401.
-fn apply_gateway(cmd: &mut CommandBuilder, provider_id: Option<&str>) {
+fn apply_claude_gateway(cmd: &mut CommandBuilder, provider_id: Option<&str>) -> Result<(), String> {
     let Some(provider_id) = provider_id else {
-        return;
+        return Ok(());
     };
-    let Some(env) = crate::modules::gateway::shell_env(provider_id) else {
-        log::warn!("pty gateway: provider {provider_id} unavailable, shell left unrouted");
-        return;
-    };
+    let env = crate::modules::gateway::shell_env(provider_id, false)
+        .ok_or("Claude Code 网关不可用，请检查右下角供应商设置")?;
     log::info!("pty gateway: routing this shell through {}", env.base_url);
     cmd.env("ANTHROPIC_BASE_URL", env.base_url);
     cmd.env("ANTHROPIC_AUTH_TOKEN", env.token);
@@ -125,18 +129,28 @@ fn apply_gateway(cmd: &mut CommandBuilder, provider_id: Option<&str>) {
         }
         None => cmd.env_remove("CLAUDE_CODE_MAX_CONTEXT_TOKENS"),
     }
+    Ok(())
 }
 
-fn apply_common(
-    cmd: &mut CommandBuilder,
-    cwd: Option<String>,
-    blocks: bool,
-    gateway_provider: Option<&str>,
-) {
+fn apply_codex_gateway(cmd: &mut CommandBuilder, provider_id: Option<&str>) -> Result<(), String> {
+    let Some(provider_id) = provider_id else {
+        return Ok(());
+    };
+    let env = crate::modules::gateway::shell_env(provider_id, true)
+        .ok_or("Codex 网关不可用，请检查右下角供应商设置")?;
+    cmd.env("AWEI_WORK_CODEX_GATEWAY", format!("{}/v1", env.base_url));
+    cmd.env("AWEI_WORK_CODEX_GATEWAY_TOKEN", env.token);
+    cmd.env("AWEI_WORK_CODEX_GATEWAY_MODEL", env.model);
+    if let Some(window) = env.context_window {
+        cmd.env("AWEI_WORK_CODEX_GATEWAY_CONTEXT", window.to_string());
+    }
+    Ok(())
+}
+
+fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>, blocks: bool) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERAX_TERMINAL", "1");
-    apply_gateway(cmd, gateway_provider);
     if blocks {
         cmd.env("TERAX_BLOCKS", "1");
     }
@@ -173,7 +187,7 @@ mod windows {
         _workspace: WorkspaceEnv,
         blocks: bool,
         shell: Option<String>,
-        gateway_provider: Option<String>,
+        gateway_routes: super::GatewayRoutes,
     ) -> Result<(CommandBuilder, super::ShellQuoteKind), String> {
         let shell_path = shell
             .map(|s| s.trim().to_string())
@@ -190,7 +204,12 @@ mod windows {
         let is_bash = shell_name == "bash.exe";
 
         let mut cmd = CommandBuilder::new(&shell_path);
-        super::apply_common(&mut cmd, cwd, blocks, gateway_provider.as_deref());
+        super::apply_common(&mut cmd, cwd, blocks);
+        if gateway_routes.codex.is_some() && !is_powershell && !is_bash {
+            return Err("Codex 网关需要使用 PowerShell 或 Git Bash".into());
+        }
+        super::apply_claude_gateway(&mut cmd, gateway_routes.claude.as_deref())?;
+        super::apply_codex_gateway(&mut cmd, gateway_routes.codex.as_deref())?;
 
         if is_powershell {
             match prepare_ps_profile() {
@@ -203,6 +222,9 @@ mod windows {
                     cmd.arg(profile);
                 }
                 Err(e) => {
+                    if gateway_routes.codex.is_some() {
+                        return Err(format!("无法加载 Codex 网关的终端配置：{e}"));
+                    }
                     log::warn!("powershell shell integration disabled: {e}");
                 }
             }
@@ -219,6 +241,9 @@ mod windows {
                     cmd.arg("-i");
                 }
                 Err(e) => {
+                    if gateway_routes.codex.is_some() {
+                        return Err(format!("无法加载 Codex 网关的终端配置：{e}"));
+                    }
                     log::warn!("bash shell integration disabled: {e}");
                 }
             }

@@ -27,7 +27,7 @@ import {
 } from "../block/lib/blockDecorations";
 import type { BlockMode } from "../block/lib/modeMachine";
 import { DormantRing } from "./dormantRing";
-import { clearGatewayPin, gatewayRoute } from "./gatewayPins";
+import { type GatewayRoutes, resolvedGatewayRoutes, syncGatewayConfig } from "./gatewayRoutes";
 import {
   createShellIntegrationState,
   registerCwdHandler,
@@ -87,6 +87,7 @@ type Session = {
   spawnEpoch: number;
   initialCwd: string | undefined;
   workspace: WorkspaceEnv;
+  gatewayRoutes?: GatewayRoutes;
   lastCwd: string | null;
   pendingExit: number | null;
   shellExited: boolean;
@@ -324,6 +325,15 @@ export function leafCwd(leafId: number): string | null {
  *  order. Used when a routing change has to reach shells that already exist. */
 export function liveLeafIds(): number[] {
   return [...sessions.keys()];
+}
+
+export function leafGatewayRoutes(leafId: number): GatewayRoutes | undefined {
+  return sessions.get(leafId)?.gatewayRoutes;
+}
+
+export function setLeafGatewayRoutes(leafId: number, routes: GatewayRoutes) {
+  const session = sessions.get(leafId);
+  if (session) session.gatewayRoutes = routes;
 }
 
 export function leafWorkspace(leafId: number): WorkspaceEnv | null {
@@ -757,6 +767,7 @@ function ensureSession(
   initialCwd?: string,
   blocks = false,
   workspace: WorkspaceEnv = currentWorkspaceEnv(),
+  gatewayRoutes?: GatewayRoutes,
 ): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
@@ -767,6 +778,7 @@ function ensureSession(
     spawnEpoch: 0,
     initialCwd,
     workspace: { ...workspace },
+    gatewayRoutes,
     lastCwd: null,
     pendingExit: null,
     shellExited: false,
@@ -896,6 +908,9 @@ async function openPtyForSession(
   const epoch = s.spawnEpoch;
   const startCols = s.cols > 0 ? s.cols : 80;
   const startRows = s.rows > 0 ? s.rows : 24;
+  const config = usePreferencesStore.getState().claudeGateway;
+  const routes = s.workspace.kind === "local" ? resolvedGatewayRoutes(config, s.gatewayRoutes) : undefined;
+  if (routes?.claude || routes?.codex) await syncGatewayConfig(config);
   const pty = await openPty(
     startCols,
     startRows,
@@ -929,8 +944,7 @@ async function openPtyForSession(
     s.blocks,
     usePreferencesStore.getState().terminalShell || undefined,
     leafId,
-    // A terminal's own pin wins; otherwise the app-wide choice applies.
-    gatewayRoute(leafId)?.providerId,
+    routes,
     s.workspace,
   );
   // Only resize if the bound dims changed during the spawn: a same-size
@@ -1223,10 +1237,6 @@ export function disposeSession(leafId: number): Promise<void> {
   s.pty = null;
   s.pendingInput = "";
   sessions.delete(leafId);
-  // The terminal is gone, so a pin made for it is meaningless. Dropping it
-  // rather than storing `null` matters: `null` means "follow nothing", which
-  // would keep a recycled id out of the global choice.
-  clearGatewayPin(leafId);
   blockViewportListeners.delete(leafId);
   readyLeaves.delete(leafId);
   const waiters = readyWaiters.get(leafId);
@@ -1242,6 +1252,7 @@ export function disposeSession(leafId: number): Promise<void> {
 
 type Options = {
   workspace: WorkspaceEnv;
+  gatewayRoutes?: GatewayRoutes;
   leafId: number;
   container: React.RefObject<HTMLDivElement | null>;
   visible: boolean;
@@ -1254,6 +1265,7 @@ type Options = {
 
 export function useTerminalSession({
   workspace,
+  gatewayRoutes,
   leafId,
   container,
   visible,
@@ -1273,6 +1285,13 @@ export function useTerminalSession({
   initialCwdRef.current = initialCwd;
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
+  const gatewayRoutesRef = useRef(gatewayRoutes);
+  gatewayRoutesRef.current = gatewayRoutes;
+
+  useEffect(() => {
+    const session = sessions.get(leafId);
+    if (session) session.gatewayRoutes = gatewayRoutes;
+  }, [leafId, gatewayRoutes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1281,6 +1300,7 @@ export function useTerminalSession({
       initialCwdRef.current,
       blocks,
       workspaceRef.current,
+      gatewayRoutesRef.current,
     );
     s.ready.then(() => {
       if (cancelled || s.disposed) return;
@@ -1306,6 +1326,7 @@ export function useTerminalSession({
       initialCwdRef.current,
       blocks,
       workspaceRef.current,
+      gatewayRoutesRef.current,
     );
     setBlockMode(s.blockMode);
     const cb = () => setBlockMode(sessions.get(leafId)?.blockMode ?? "prompt");

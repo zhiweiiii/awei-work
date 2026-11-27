@@ -16,6 +16,7 @@ import {
 } from "react";
 import { BlockOverlay } from "./block/BlockOverlay";
 import { BlockWatermark } from "./block/BlockWatermark";
+import type { GatewayRoutes } from "./lib/gatewayRoutes";
 import type { TermMatch } from "./lib/terminalFind";
 import {
   focusLeafInput,
@@ -42,6 +43,7 @@ type Props = {
   initialCwd?: string;
   /** Enable command-block decorations (OSC 133) for this terminal. */
   blocks?: boolean;
+  gatewayRoutes?: GatewayRoutes;
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
 };
@@ -55,6 +57,7 @@ export const TerminalPane = memo(
       focused = true,
       initialCwd,
       blocks = false,
+      gatewayRoutes,
       onExit,
       onCwd,
     },
@@ -75,6 +78,7 @@ export const TerminalPane = memo(
       focused,
       initialCwd,
       blocks,
+      gatewayRoutes,
       onExit: (c) => onExit?.(leafId, c),
       onCwd: (c) => onCwd?.(leafId, c),
     });

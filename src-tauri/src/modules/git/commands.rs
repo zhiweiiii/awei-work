@@ -2,11 +2,12 @@ use tauri::{AppHandle, Manager};
 
 use crate::modules::git::operations;
 use crate::modules::git::types::{
-    DiscardEntry, GitBranchListResult, GitCloneOptions, GitCommitFileChange, GitCommitMessageModel,
-    GitCommitResult, GitCompareResult, GitConfigUserResult, GitDiffContentResult, GitDiffResult,
-    GitFetchResult, GitLogEntry, GitLogFilterOptions, GitMergeResult, GitPanelSnapshot,
-    GitPreCommitChecksResult, GitPushOptions, GitPushResult, GitRebaseResult, GitRemoteEntry,
-    GitRepoHead, GitRepoInfo, GitStatusSnapshot, GitTagCreateOptions, GitWorkspaceSnapshot,
+    DiscardEntry, GitBranchListResult, GitCloneOptions, GitCommitFileChange,
+    GitCommitMessageGatewayModel, GitCommitMessageModel, GitCommitResult, GitCompareResult,
+    GitConfigUserResult, GitDiffContentResult, GitDiffResult, GitFetchResult, GitLogEntry,
+    GitLogFilterOptions, GitMergeResult, GitPanelSnapshot, GitPreCommitChecksResult,
+    GitPushOptions, GitPushResult, GitRebaseResult, GitRemoteEntry, GitRepoHead, GitRepoInfo,
+    GitStatusSnapshot, GitTagCreateOptions, GitWorkspaceSnapshot,
 };
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
@@ -28,6 +29,7 @@ pub async fn git_generate_commit_message(
     repo_roots: Vec<String>,
     workspace: Option<WorkspaceEnv>,
     model: Option<GitCommitMessageModel>,
+    gateway_model: Option<GitCommitMessageGatewayModel>,
     app: AppHandle,
 ) -> Result<String, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
@@ -39,6 +41,7 @@ pub async fn git_generate_commit_message(
             repo_roots,
             &workspace,
             model.unwrap_or_default(),
+            gateway_model,
         )
     })
     .await

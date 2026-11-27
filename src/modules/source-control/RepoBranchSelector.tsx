@@ -28,11 +28,12 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorToast } from "@/lib/errorToast";
 import { toast } from "sonner";
 import { BranchActionsMenu } from "./BranchActionsMenu";
 import { BranchConfirmDialog } from "./BranchConfirmDialog";
+import { type BranchTargetAction, BranchTargetDialog } from "./BranchTargetDialog";
 import { useRepositoryOperation } from "@/modules/source-control/useRepositoryOperation";
 import {
   LOCAL_WORKSPACE,
@@ -65,7 +66,15 @@ type Props = {
   onOpenGraph: (input: { repoRoot: string; branch?: string | null }) => void;
 };
 
+type BranchTarget = {
+  kind: "branch-target";
+  action: BranchTargetAction;
+  repoRoot: string;
+  current: string | null;
+};
+
 type BranchDialog =
+  | BranchTarget
   | { kind: "new"; repoRoot: string }
   | { kind: "rename"; repoRoot: string; branch: GitBranchEntry }
   | { kind: "delete"; repoRoot: string; branch: GitBranchEntry }
@@ -77,7 +86,7 @@ type BranchDialog =
       current: string;
     }
   | { kind: "pull-confirm"; repoRoot: string; current: string }
-  | { kind: "compare"; repoRoot: string; target: string }
+  | { kind: "compare"; repoRoot: string; left: string; target: string }
   | { kind: "diff"; repoRoot: string }
   | { kind: "worktrees"; repoRoot: string }
   | null;
@@ -88,6 +97,12 @@ type PendingRemote = {
   local: string;
   hasLocal: boolean;
 };
+
+const BRANCH_PROGRESS = {
+  pull: "正在拉取当前分支…",
+  merge: "正在合并分支…",
+  rebase: "正在变基…",
+} as const;
 
 function shortName(repoRoot: string): string {
   return repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? repoRoot;
@@ -145,10 +160,20 @@ function ScopedRepoBranchSelector({
   const [dialog, setDialog] = useState<BranchDialog>(null);
   const dialogRef = useRef(dialog);
   dialogRef.current = dialog;
-  const [busyLabel, setBusyOp] = useState<string | null>(null);
+  const [busyLabel, setBusyOp] = useState<
+    keyof typeof BRANCH_PROGRESS | "checkout" | null
+  >(null);
   const busyOp = busy ? busyLabel : null;
   const protectedBranches = usePreferencesStore((s) => s.protectedBranches);
   const inFlight = useRef(new Map<string, symbol>());
+
+  useEffect(() => {
+    if (!busyOp || busyOp === "checkout") return;
+    const progress = toast.loading(BRANCH_PROGRESS[busyOp]);
+    return () => {
+      toast.dismiss(progress);
+    };
+  }, [busyOp]);
 
   const loadBranches = useCallback(
     async (repoRoot: string, force = false) => {
@@ -398,31 +423,36 @@ function ScopedRepoBranchSelector({
     [branches, protectedBranches, runPull],
   );
 
-  const handleMerge = useCallback(
-    (repoRoot: string, target: string) => {
-      setOpen(false);
-      const current = currentBranchOf(branches[repoRoot] ?? []);
-      if (current && protectedBranches.includes(current)) {
-        setDialog({ kind: "merge-confirm", repoRoot, target, current });
-      } else {
-        void runMerge(repoRoot, target, current ?? undefined);
-      }
-    },
-    [branches, protectedBranches, runMerge],
-  );
+  const chooseBranchTarget = (repoRoot: string, action: BranchTargetAction) => {
+    setOpen(false);
+    setDialog({
+      kind: "branch-target",
+      action,
+      repoRoot,
+      current: currentBranchOf(branches[repoRoot] ?? []),
+    });
+  };
 
-  const handleRebase = useCallback(
-    (repoRoot: string, target: string) => {
-      setOpen(false);
-      const current = currentBranchOf(branches[repoRoot] ?? []);
-      if (current && protectedBranches.includes(current)) {
-        setDialog({ kind: "rebase-confirm", repoRoot, target, current });
-      } else {
-        void runRebase(repoRoot, target, current ?? undefined);
-      }
-    },
-    [branches, protectedBranches, runRebase],
-  );
+  const actOnBranchTarget = (
+    { repoRoot, current, action }: BranchTarget,
+    target: string,
+  ) => {
+    if (busy || !isCurrent()) return;
+    if (action === "compare") {
+      setDialog({ kind: "compare", repoRoot, left: current ?? "HEAD", target });
+    } else if (current && protectedBranches.includes(current)) {
+      setDialog({
+        kind: action === "merge" ? "merge-confirm" : "rebase-confirm",
+        repoRoot,
+        target,
+        current,
+      });
+    } else {
+      setDialog(null);
+      const execute = action === "merge" ? runMerge : runRebase;
+      void execute(repoRoot, target, current ?? undefined);
+    }
+  };
 
   const handleNewBranch = useCallback((repoRoot: string) => {
     setOpen(false);
@@ -444,11 +474,6 @@ function ScopedRepoBranchSelector({
     },
     [],
   );
-
-  const handleCompare = useCallback((repoRoot: string, target: string) => {
-    setOpen(false);
-    setDialog({ kind: "compare", repoRoot, target });
-  }, []);
 
   const handleDiff = useCallback((repoRoot: string) => {
     setOpen(false);
@@ -628,9 +653,9 @@ function ScopedRepoBranchSelector({
                         : null
                     }
                     onPull={() => handlePull(repo.repoRoot)}
-                    onMerge={(target) => handleMerge(repo.repoRoot, target)}
-                    onRebase={(target) => handleRebase(repo.repoRoot, target)}
-                    onCompare={(target) => handleCompare(repo.repoRoot, target)}
+                    onChooseTarget={(action) =>
+                      chooseBranchTarget(repo.repoRoot, action)
+                    }
                     onDiff={() => handleDiff(repo.repoRoot)}
                     onNewBranch={() => handleNewBranch(repo.repoRoot)}
                     onWorktrees={() => handleWorktrees(repo.repoRoot)}
@@ -743,6 +768,20 @@ function ScopedRepoBranchSelector({
             setDialog(null);
         }}
       />
+      {dialog?.kind === "branch-target" && (
+        <BranchTargetDialog
+          action={dialog.action}
+          current={dialog.current ?? "HEAD"}
+          repoName={shortName(dialog.repoRoot)}
+          targets={(branches[dialog.repoRoot] ?? [])
+            .filter(
+              (branch) => branch.kind === "local" && branch.name !== dialog.current,
+            )
+            .map((branch) => branch.name)}
+          onClose={() => setDialog(null)}
+          onSelect={(target) => actOnBranchTarget(dialog, target)}
+        />
+      )}
       <CompareBranchesDialog
         open={dialog?.kind === "compare"}
         onOpenChange={(next) => {
@@ -750,11 +789,7 @@ function ScopedRepoBranchSelector({
         }}
         repoRoot={dialog?.kind === "compare" ? dialog.repoRoot : ""}
         repoName={dialog?.kind === "compare" ? shortName(dialog.repoRoot) : ""}
-        left={
-          dialog?.kind === "compare"
-            ? (currentBranchOf(branches[dialog.repoRoot] ?? []) ?? "HEAD")
-            : ""
-        }
+        left={dialog?.kind === "compare" ? dialog.left : ""}
         right={dialog?.kind === "compare" ? dialog.target : ""}
       />
       <WorkingTreeDiffDialog
@@ -801,9 +836,7 @@ function BranchFlyout({
   busyOp,
   pendingRemote,
   onPull,
-  onMerge,
-  onRebase,
-  onCompare,
+  onChooseTarget,
   onDiff,
   onNewBranch,
   onWorktrees,
@@ -825,9 +858,7 @@ function BranchFlyout({
   busyOp: string | null;
   pendingRemote: PendingRemote | null;
   onPull: () => void;
-  onMerge: (target: string) => void;
-  onRebase: (target: string) => void;
-  onCompare: (target: string) => void;
+  onChooseTarget: (action: BranchTargetAction) => void;
   onDiff: () => void;
   onNewBranch: () => void;
   onWorktrees: () => void;
@@ -852,12 +883,9 @@ function BranchFlyout({
         <span className="min-w-0 flex-1 truncate">{shortName(repoRoot)}</span>
         <BranchActionsMenu
           currentBranch={current}
-          branches={branches}
-          busy={busyOp !== null}
+          busy={busyOp !== null || (loading && branches.length === 0)}
           onPull={onPull}
-          onMerge={onMerge}
-          onRebase={onRebase}
-          onCompare={onCompare}
+          onChooseTarget={onChooseTarget}
           onDiff={onDiff}
         />
       </DropdownMenuLabel>

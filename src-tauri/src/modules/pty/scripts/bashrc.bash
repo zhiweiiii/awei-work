@@ -24,6 +24,25 @@ if [ -z "$__TERAX_HOOKS_LOADED" ]; then
   # on reload, guard with a flag.
   [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"
 
+  if [ -n "$AWEI_WORK_CODEX_GATEWAY" ]; then
+    codex() {
+      local options=(
+        -c 'model_provider=awei_work_gateway'
+        -c 'model_providers.awei_work_gateway.name=Awei Work Gateway'
+        -c "model_providers.awei_work_gateway.base_url=$AWEI_WORK_CODEX_GATEWAY"
+        -c 'model_providers.awei_work_gateway.env_key=AWEI_WORK_CODEX_GATEWAY_TOKEN'
+        -c 'model_providers.awei_work_gateway.wire_api=responses'
+        -c 'model_providers.awei_work_gateway.supports_websockets=false'
+        -c 'model_providers.awei_work_gateway.capabilities.remote_compaction=unsupported'
+        -c "model=$AWEI_WORK_CODEX_GATEWAY_MODEL"
+      )
+      if [ -n "$AWEI_WORK_CODEX_GATEWAY_CONTEXT" ]; then
+        options+=(-c "model_context_window=$AWEI_WORK_CODEX_GATEWAY_CONTEXT")
+      fi
+      command codex "${options[@]}" "$@"
+    }
+  fi
+
   _terax_urlencode() {
     local LC_ALL=C s="$1" i c
     for (( i=0; i<${#s}; i++ )); do

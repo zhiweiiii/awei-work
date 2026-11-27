@@ -13,6 +13,14 @@ pub enum GitCommitMessageModel {
     #[default]
     Luna,
     CodexDefault,
+    ClaudeDefault,
+    Gateway,
+}
+
+#[derive(Deserialize)]
+pub struct GitCommitMessageGatewayModel {
+    pub provider: crate::modules::gateway::config::Provider,
+    pub model: String,
 }
 
 #[derive(Serialize)]

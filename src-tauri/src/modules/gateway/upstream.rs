@@ -85,10 +85,19 @@ fn request_headers(provider: &Provider, session: Option<&str>) -> HeaderMap {
 
 /// Send one converted request. Returns the live response so the caller can
 /// stream it; the body is not read here.
-pub fn send(provider: &Provider, body: &Value, session: Option<&str>) -> Result<Response, String> {
+pub fn send(
+    provider: &Provider,
+    body: &Value,
+    session: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<Response, String> {
     let url = provider.messages_url();
     let headers = request_headers(provider, session);
     let request = client().post(&url).headers(headers).json(body);
+    let request = match timeout {
+        Some(timeout) => request.timeout(timeout),
+        None => request,
+    };
     // `send` arms the timeout as it is called, not when the future is polled,
     // so it has to be called from inside the runtime rather than passed in.
     let response = runtime()

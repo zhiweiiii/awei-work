@@ -3,6 +3,7 @@ import {
   type PaneNode,
   type SplitDir,
 } from "@/modules/terminal/lib/panes";
+import { type GatewayRoutes, isGatewayRoutes } from "@/modules/terminal/lib/gatewayRoutes";
 import type {
   EditorTab,
   MarkdownTab,
@@ -30,6 +31,7 @@ export type SerializedTab =
       openedAt?: number;
       parked?: boolean;
       lastAgentSession?: AgentResume;
+      gatewayRoutes?: GatewayRoutes;
     }
   | { kind: "editor"; path: string; ownerTab?: number }
   | { kind: "preview"; url: string; ownerTab?: number }
@@ -77,6 +79,7 @@ export function isSerializedTabs(value: unknown): value is SerializedTab[] {
             item.lastAgentMessageAt > 0)) &&
         (item.lastAgentSession === undefined ||
           isAgentResume(item.lastAgentSession)) &&
+        (item.gatewayRoutes === undefined || isGatewayRoutes(item.gatewayRoutes)) &&
         (item.blocks === undefined || typeof item.blocks === "boolean") &&
         (item.customTitle === undefined || typeof item.customTitle === "string")
       );
@@ -153,6 +156,7 @@ function serializeTab(tab: Tab): SerializedTab | null {
         ...(tab.openedAt !== undefined && { openedAt: tab.openedAt }),
         ...(tab.parked && { parked: true }),
         ...(tab.lastAgentSession && { lastAgentSession: tab.lastAgentSession }),
+        ...(tab.gatewayRoutes && { gatewayRoutes: tab.gatewayRoutes }),
         ...(tab.blocks && { blocks: true }),
         ...(tab.customTitle !== undefined && { customTitle: tab.customTitle }),
       };
@@ -264,6 +268,7 @@ function hydrateTab(
         ...(s.openedAt !== undefined && { openedAt: s.openedAt }),
         ...(s.parked && { parked: true }),
         ...(s.lastAgentSession && { lastAgentSession: s.lastAgentSession }),
+        ...(s.gatewayRoutes && { gatewayRoutes: s.gatewayRoutes }),
         cwd: firstLeafCwd,
         paneTree: tree,
         activeLeafId,
