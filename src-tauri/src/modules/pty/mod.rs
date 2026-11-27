@@ -560,7 +560,6 @@ pub fn web_sync_spaces(state: tauri::State<PtyState>, spaces: Vec<WebSpace>) {
 
 /// The web page wants to attach to a desktop tab that has no live pty yet.
 /// Ask the frontend to activate that tab, which opens the pty.
-#[tauri::command]
 pub fn web_activate_leaf(app: tauri::AppHandle, leaf_id: u32) {
     let _ = app.emit("terax:web-activate", leaf_id);
 }

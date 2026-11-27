@@ -216,11 +216,9 @@ export default function App() {
     newCommandTab,
     newPrivateTab,
     openFileTab: openLocalFileTab,
-    pinTab,
     newPreviewTab,
     newMarkdownTab,
     setMarkdownView,
-    setOverrideLanguage,
     openGitDiffTab: openLocalGitDiffTab,
     openCommitHistoryTab: openLocalHistoryTab,
     openCommitFileDiffTab,
@@ -1703,9 +1701,7 @@ export default function App() {
               }}
               onClose={handleParkProject}
               onReorder={reorderHeaderProjects}
-              onPin={pinTab}
               onRename={handleRenameTab}
-              onOverrideLanguage={setOverrideLanguage}
               headerRight={
                 !sshActive && (
                   <SessionHistoryMenu

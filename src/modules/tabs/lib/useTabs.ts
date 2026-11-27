@@ -4,7 +4,7 @@ import {
   runningProjectIds,
 } from "@/modules/spaces/lib/projectTabs";
 import { ptyIdForLeaf, useAgentActivityStore } from "@/modules/terminal";
-import { pathIdentity } from "@/lib/pathIdentity";
+import { pathBasename as basename, pathIdentity } from "@/lib/pathIdentity";
 import { moveProjectTabs } from "./moveProject";
 import { parkProjectTabs } from "./parkProject";
 import {
@@ -318,11 +318,6 @@ export function planFileTabOpen(
   return { tabs: next, tabId };
 }
 
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : path;
-}
-
 function titleFromUrl(url: string): string {
   try {
     const u = new URL(url);
@@ -369,29 +364,6 @@ export function nextActiveInSpace(
   }
   const idx = sameSpace.findIndex((t) => t.id === closingId);
   return (sameSpace[idx - 1] ?? sameSpace[idx + 1]).id;
-}
-
-// Reordering changes position, never space ownership.
-export function reorderTabsByGap(
-  tabs: Tab[],
-  fromId: number,
-  toGapIndex: number,
-  scope: "space" | "all" = "space",
-): Tab[] {
-  const moved = tabs.find((t) => t.id === fromId);
-  if (!moved) return tabs;
-  const sameSpace =
-    scope === "all" ? tabs : tabs.filter((t) => t.spaceId === moved.spaceId);
-  const spaceFrom = sameSpace.findIndex((t) => t.id === fromId);
-  let spaceTarget = toGapIndex > spaceFrom ? toGapIndex - 1 : toGapIndex;
-  spaceTarget = Math.max(0, Math.min(spaceTarget, sameSpace.length - 1));
-  if (spaceTarget === spaceFrom) return tabs;
-  const anchor = sameSpace[spaceTarget];
-  const next = tabs.filter((t) => t.id !== fromId);
-  const anchorIdx = next.findIndex((t) => t.id === anchor.id);
-  const insertIdx = spaceTarget > spaceFrom ? anchorIdx + 1 : anchorIdx;
-  next.splice(insertIdx, 0, moved);
-  return next;
 }
 
 export function planGitDiffOpen(
@@ -927,25 +899,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [setTabs, setActiveId],
   );
 
-  /**
-   * Promotes a preview tab to a persistent one. Called on double-click of the
-   * tab title in the tab bar. Dirty editor tabs also auto-promote.
-   */
-  const pinTab = useCallback(
-    (id: number) => {
-      setTabs((curr) =>
-        curr.map((t) => {
-          if (t.id !== id) return t;
-          if ((t.kind === "editor" || t.kind === "git-diff") && t.preview) {
-            return { ...t, preview: false };
-          }
-          return t;
-        }),
-      );
-    },
-    [setTabs],
-  );
-
   const newPreviewTab = useCallback(
     (url: string) => {
       const id = nextIdRef.current++;
@@ -994,21 +947,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       return plan.tabId;
     },
     [setTabs, setActiveId],
-  );
-
-  const setOverrideLanguage = useCallback(
-    (id: number, lang: string | null) => {
-      setTabs((curr) =>
-        curr.map((t) => {
-          if (t.id !== id || t.kind !== "editor") return t;
-          return {
-            ...t,
-            overrideLanguage: lang,
-          };
-        }),
-      );
-    },
-    [setTabs],
   );
 
   const setMarkdownView = useCallback(
@@ -1462,13 +1400,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [setTabs, setActiveId],
   );
 
-  const reorderTabByGap = useCallback(
-    (fromId: number, toGapIndex: number, scope: "space" | "all" = "space") => {
-      setTabs((prev) => reorderTabsByGap(prev, fromId, toGapIndex, scope));
-    },
-    [setTabs],
-  );
-
   const moveProject = useCallback(
     (id: number, spaceId: string, beforeId: number | null) => {
       setTabs((current) => moveProjectTabs(current, id, spaceId, beforeId));
@@ -1530,7 +1461,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     booted,
     replaceTabs,
     warmTab,
-    reorderTabByGap,
     reorderHeaderProjects,
     updateProjectAgentSnapshot,
     moveProject,
@@ -1539,13 +1469,11 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     removeTabsForSpace,
     markBooted,
     setActiveSpaceForNewTabs,
-    setOverrideLanguage,
     newTab,
     newBlockTab,
     newCommandTab,
     newPrivateTab,
     openFileTab,
-    pinTab,
     newPreviewTab,
     newMarkdownTab,
     setMarkdownView,

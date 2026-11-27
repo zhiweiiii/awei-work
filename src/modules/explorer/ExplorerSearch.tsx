@@ -1,4 +1,5 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { pathBasename as basename } from "@/lib/pathIdentity";
 import { cn } from "@/lib/utils";
 import { useContentSearch } from "@/modules/command-palette/hooks/useContentSearch";
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
@@ -47,11 +48,6 @@ type FileSearchResult = {
   hits: FileHit[];
   truncated: boolean;
 };
-
-function basename(rel: string): string {
-  const parts = rel.split(/[\\/]/);
-  return parts[parts.length - 1] || rel;
-}
 
 const MIN_QUERY_LEN = 1;
 const FILE_SEARCH_DEBOUNCE_MS = 250;

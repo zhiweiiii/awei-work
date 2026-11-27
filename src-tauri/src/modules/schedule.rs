@@ -512,23 +512,6 @@ pub fn start(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-pub async fn schedule_add(
-    app: tauri::AppHandle,
-    leaf_id: u32,
-    command: String,
-    delay_seconds: u64,
-) -> Result<Job, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<ScheduleState>();
-        let job = state.add(leaf_id, command, Duration::from_secs(delay_seconds))?;
-        let _ = app.emit(SCHEDULE_EVENT, state.list());
-        Ok(job)
-    })
-    .await
-    .map_err(|e| format!("定时任务操作失败：{e}"))?
-}
-
-#[tauri::command]
 pub fn schedule_list(state: tauri::State<ScheduleState>) -> Result<Vec<Job>, String> {
     if let Some(error) = state.storage_error.lock().unwrap().clone() {
         return Err(error);

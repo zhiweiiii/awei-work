@@ -22,6 +22,7 @@ import {
   type GitRepoHead,
   native,
 } from "@/lib/native";
+import { pathBasename as basename } from "@/lib/pathIdentity";
 import { cn } from "@/lib/utils";
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
@@ -148,11 +149,6 @@ function trimFilesCache(cache: Map<string, FilesEntry>, keep: string): void {
     bytes -= filesEntryBytes(entry);
     cache.delete(sha);
   }
-}
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : path;
 }
 
 function dirname(path: string): string {

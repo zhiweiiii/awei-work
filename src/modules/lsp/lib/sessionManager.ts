@@ -4,7 +4,7 @@ import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import { pathIdentity } from "@/lib/pathIdentity";
+import { pathBasename as basename, pathIdentity } from "@/lib/pathIdentity";
 import type { AweiWorkLspClient } from "./client";
 import { detectBinary } from "./detect";
 import { getLspNavigator } from "./navigator";
@@ -52,10 +52,6 @@ function canAcquire(presetId: string, epoch: number): boolean {
     currentWorkspaceEnv().kind === "local" &&
     usePreferencesStore.getState().lspActivation[presetId] === "enabled"
   );
-}
-
-function basename(path: string): string {
-  return path.split(/[\\/]/).pop() ?? path;
 }
 
 function crashedOut(key: string): boolean {

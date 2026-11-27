@@ -42,6 +42,7 @@ import {
 import { errorToast } from "@/lib/errorToast";
 import { gatewayCommitMessageModels } from "@/lib/gitCommitMessageModel";
 import { type GitRepoHead, type GitStatusSnapshot, native } from "@/lib/native";
+import { pathBasename as basename } from "@/lib/pathIdentity";
 import { cn } from "@/lib/utils";
 import { useAsyncQuery } from "@/modules/command-palette/hooks/useAsyncQuery";
 import {
@@ -270,11 +271,6 @@ type RowDescriptor =
     }
   | { kind: "list-header"; key: string; count: number }
   | ChangeTreeRow;
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : path;
-}
 
 function upstreamBadgeLabel(upstream: string | null | undefined): string {
   if (!upstream) return "No upstream";

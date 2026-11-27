@@ -1,3 +1,4 @@
+import { pathBasename as basename } from "@/lib/pathIdentity";
 import {
   isLeaf,
   type PaneNode,
@@ -99,11 +100,6 @@ export function isSerializedTabs(value: unknown): value is SerializedTab[] {
           item.ownerTab < value.length))
     );
   });
-}
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : path;
 }
 
 function titleFromUrl(url: string): string {

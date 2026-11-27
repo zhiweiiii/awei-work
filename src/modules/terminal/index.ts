@@ -10,7 +10,6 @@ export {
   leafGatewayRoutes,
   setLeafGatewayRoutes,
   leafWorkspace,
-  leafShellKind,
   leafIdForPty,
   navigateFocusedBlocks,
   pasteToLeaf,

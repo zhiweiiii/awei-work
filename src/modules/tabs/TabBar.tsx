@@ -5,20 +5,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import {
-  ALL_LANGUAGES,
-  EXPOSED_LANGUAGES,
-} from "@/modules/editor/lib/languageDefinitions";
-import { resolveDisplayName } from "@/modules/editor/lib/languageResolver";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { useSpaces } from "@/modules/spaces/lib/useSpaces";
 import {
@@ -38,7 +26,6 @@ import {
   IncognitoIcon,
   Message02Icon,
   PencilEdit02Icon,
-  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -49,11 +36,11 @@ import {
   useState,
 } from "react";
 import { labelFor, splitProjectBadge } from "./lib/tabLabel";
-import type { EditorTab, Tab } from "./lib/useTabs";
+import type { Tab, TerminalTab } from "./lib/useTabs";
 import { NewTabMenu } from "./NewTabMenu";
 
 type Props = {
-  tabs: Tab[];
+  tabs: TerminalTab[];
   activeId: number;
   /**
    * When the active tab is a file, this is the terminal tab it belongs to —
@@ -69,13 +56,10 @@ type Props = {
   onNewEditor: () => void;
   onNewGitGraph: () => void;
   onClose: (id: number) => void;
-  /** Pin (promote) a preview tab to persistent on double-click. */
-  onPin: (id: number) => void;
   /** Set a terminal tab's custom label; empty string resets to default. */
   onRename: (id: number, title: string) => void;
   /** Move a dragged tab to a new position (insertion gap index 0..tabs.length). */
   onReorder?: (fromId: number, toGapIndex: number) => void;
-  onOverrideLanguage?: (id: number, lang: string | null) => void;
   compact?: boolean;
 };
 
@@ -91,10 +75,8 @@ export function TabBar({
   onNewEditor,
   onNewGitGraph,
   onClose,
-  onPin,
   onRename,
   onReorder,
-  onOverrideLanguage,
   compact,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -102,7 +84,6 @@ export function TabBar({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropGap, setDropGap] = useState<number | null>(null);
-  const [showAllLanguages, setShowAllLanguages] = useState(false);
   const drag = useRef<{
     pointerId: number;
     startX: number;
@@ -270,31 +251,24 @@ export function TabBar({
         >
           <TabsList className="relative h-7 w-max gap-1 bg-transparent p-0">
             {tabs.map((t, i) => {
-              const isPreview =
-                (t.kind === "editor" || t.kind === "git-diff") && t.preview;
               // A file tab highlights its owning command line; a terminal tab
               // highlights itself.
               const isActive =
                 t.id === activeId ||
                 (activeOwnerTabId != null &&
                   activeId !== t.id &&
-                  t.kind === "terminal" &&
                   t.id === activeOwnerTabId);
               const isNew = !firstRender && !seen.has(t.id);
-              const isProject = t.kind === "terminal";
               const label = labelFor(t);
-              const projectBadge = isProject ? splitProjectBadge(label) : null;
-              const groupName = isProject
-                ? (spaces.find((space) => space.id === t.spaceId)?.name ?? null)
-                : null;
-              const projectTitle = isProject
-                ? `${label}${groupName ? ` (${groupName})` : ""}${t.private ? " (private)" : ""}`
-                : undefined;
+              const projectBadge = splitProjectBadge(label);
+              const groupName =
+                spaces.find((space) => space.id === t.spaceId)?.name ?? null;
+              const projectTitle = `${label}${groupName ? ` (${groupName})` : ""}${t.private ? " (private)" : ""}`;
 
               // While renaming, render a non-button cell so the <input> is not
               // nested inside the trigger <button> (invalid HTML, and WebKit
               // blocks focus/selection on inputs inside buttons).
-              if (editingId === t.id && t.kind === "terminal") {
+              if (editingId === t.id) {
                 return (
                   <Fragment key={t.id}>
                     {showGap(i) && <DropIndicator />}
@@ -306,7 +280,7 @@ export function TabBar({
                       )}
                     >
                       <span className="inline-flex h-4 min-w-5 shrink-0 items-center justify-center rounded bg-foreground/10 px-1 text-[10px] font-medium">
-                        {projectBadge?.icon ?? "?"}
+                        {projectBadge.icon}
                       </span>
                       <TabRenameInput
                         initial={label}
@@ -330,7 +304,7 @@ export function TabBar({
                   data-tab-id={t.id}
                   data-tab-active={isActive ? "true" : undefined}
                   title={projectTitle}
-                  aria-label={isProject ? label : undefined}
+                  aria-label={label}
                   onPointerDown={(e) => {
                     if (e.button !== 0 || !e.isPrimary) return;
                     if (drag.current) return;
@@ -394,12 +368,8 @@ export function TabBar({
                   }}
                   onPointerCancel={() => endDrag()}
                   onLostPointerCapture={() => endDrag()}
-                  onDoubleClick={() => isPreview && onPin(t.id)}
                   onAuxClick={(e) => {
-                    if (
-                      e.button === 1 &&
-                      (tabs.length > 1 || t.kind === "terminal")
-                    ) {
+                    if (e.button === 1) {
                       e.preventDefault();
                       e.stopPropagation();
                       onClose(t.id);
@@ -420,311 +390,120 @@ export function TabBar({
                     }
                   }}
                   className={cn(
-                    "group relative z-[1] h-7 flex-none shrink-0 cursor-default rounded-md text-xs",
+                    "group relative z-[1] h-7 flex-none shrink-0 cursor-default rounded-md text-xs terax-project-tab min-w-7 justify-center gap-0",
                     isNew && "terax-tab-in",
-                    isProject
+                    isActive
                       ? cn(
-                          "terax-project-tab min-w-7 justify-center gap-0",
-                          isActive
-                            ? cn(
-                                "bg-foreground/[0.10] text-foreground shadow-sm ring-1 ring-inset ring-foreground/[0.12] data-active:bg-foreground/[0.10] dark:text-foreground dark:data-active:bg-foreground/[0.10]",
-                                compact ? "ps-2! pe-1!" : "ps-2.5! pe-1.5!",
-                              )
-                            : "bg-foreground/[0.05] px-1.5! text-muted-foreground ring-1 ring-inset ring-foreground/[0.05] hover:bg-foreground/[0.09] hover:text-foreground/90 data-active:bg-foreground/[0.05] dark:text-muted-foreground dark:data-active:bg-foreground/[0.05]",
+                          "bg-foreground/[0.10] text-foreground shadow-sm ring-1 ring-inset ring-foreground/[0.12] data-active:bg-foreground/[0.10] dark:text-foreground dark:data-active:bg-foreground/[0.10]",
+                          compact ? "ps-2! pe-1!" : "ps-2.5! pe-1.5!",
                         )
-                      : cn(
-                          "justify-between gap-1.5 bg-transparent transition-colors",
-                          isActive
-                            ? "bg-foreground/[0.07] text-foreground shadow-sm ring-1 ring-inset ring-foreground/[0.05] data-active:bg-foreground/[0.07] dark:text-foreground dark:data-active:bg-foreground/[0.07]"
-                            : "text-muted-foreground hover:text-foreground/80 data-active:bg-transparent dark:text-muted-foreground dark:data-active:bg-transparent",
-                          compact
-                            ? "px-1.5!"
-                            : tabs.length === 1
-                              ? "px-2!"
-                              : "ps-2! pe-1!",
-                        ),
+                      : "bg-foreground/[0.05] px-1.5! text-muted-foreground ring-1 ring-inset ring-foreground/[0.05] hover:bg-foreground/[0.09] hover:text-foreground/90 data-active:bg-foreground/[0.05] dark:text-muted-foreground dark:data-active:bg-foreground/[0.05]",
                     draggingId === t.id && "opacity-50",
                     onReorder && "touch-none",
                   )}
                 >
-                  {isProject && projectBadge ? (
-                    <>
+                  <span
+                    className={cn(
+                      "flex min-w-0 items-center",
+                      compact ? "max-w-48" : "max-w-72",
+                    )}
+                  >
+                    <span className="shrink-0 font-medium">
+                      {projectBadge.icon}
+                    </span>
+                    {projectBadge.rest ? (
                       <span
-                        className={cn(
-                          "flex min-w-0 items-center",
-                          compact ? "max-w-48" : "max-w-72",
-                        )}
-                      >
-                        <span className="shrink-0 font-medium">
-                          {projectBadge.icon}
-                        </span>
-                        {projectBadge.rest ? (
-                          <span
-                            className="terax-project-rest"
-                            data-expanded={isActive ? "true" : "false"}
-                            aria-hidden={!isActive}
-                          >
-                            <span className="terax-project-rest-inner font-medium">
-                              {projectBadge.rest}
-                            </span>
-                          </span>
-                        ) : null}
-                      </span>
-                      <span
-                        className={cn(
-                          "terax-project-close",
-                          !isActive && "pointer-events-none",
-                        )}
+                        className="terax-project-rest"
                         data-expanded={isActive ? "true" : "false"}
                         aria-hidden={!isActive}
                       >
-                        <span className="terax-project-close-inner">
-                          {/* biome-ignore lint/a11y/useSemanticElements: TabsTrigger already renders a button; nesting another breaks focus. */}
-                          <span
-                            role="button"
-                            tabIndex={isActive ? 0 : -1}
-                            aria-label="停止 agent 并收纳项目"
-                            title="停止 agent 并收纳项目"
-                            data-no-drag
-                            onKeyDown={(event) => {
-                              event.stopPropagation();
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                onClose(t.id);
-                              }
-                            }}
-                            onPointerDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                            }}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onClose(t.id);
-                            }}
-                            className="cursor-default rounded p-0.5 opacity-60 transition-opacity hover:bg-accent hover:opacity-100"
-                          >
-                            <HugeiconsIcon
-                              icon={Cancel01Icon}
-                              size={11}
-                              strokeWidth={2}
-                            />
-                          </span>
+                        <span className="terax-project-rest-inner font-medium">
+                          {projectBadge.rest}
                         </span>
                       </span>
-                    </>
-                  ) : (
-                    <>
+                    ) : null}
+                  </span>
+                  <span
+                    className={cn(
+                      "terax-project-close",
+                      !isActive && "pointer-events-none",
+                    )}
+                    data-expanded={isActive ? "true" : "false"}
+                    aria-hidden={!isActive}
+                  >
+                    <span className="terax-project-close-inner">
+                      {/* biome-ignore lint/a11y/useSemanticElements: TabsTrigger already renders a button; nesting another breaks focus. */}
                       <span
-                        className={cn(
-                          "flex min-w-0 items-center gap-1.5",
-                          compact ? "max-w-48" : "max-w-80",
-                        )}
-                      >
-                        {t.kind === "editor" ? (
-                          <DropdownMenu
-                            onOpenChange={(open) => {
-                              if (!open) setShowAllLanguages(false);
-                            }}
-                          >
-                            <DropdownMenuTrigger asChild>
-                              {/* biome-ignore lint/a11y/useSemanticElements: TabsTrigger already renders a button; nesting another breaks focus. */}
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                aria-label="Select file language"
-                                data-no-drag
-                                onKeyDown={(event) => event.stopPropagation()}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                }}
-                                className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-sm p-1 -m-1 transition-all hover:bg-accent hover:text-accent-foreground hover:ring-1 hover:ring-primary/30 hover:shadow-[0_0_4px_var(--color-popover-foreground)]"
-                              >
-                                <TabIcon tab={t} />
-                              </span>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              align="start"
-                              side="bottom"
-                              sideOffset={6}
-                              alignOffset={-4}
-                              className="max-h-75 w-48 overflow-y-auto rounded-xl border border-border/40 bg-popover/90 p-1 backdrop-blur-md shadow-lg"
-                              onClick={(e) => e.stopPropagation()}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onPointerUp={(e) => e.stopPropagation()}
-                            >
-                              <DropdownMenuItem
-                                onSelect={() => {
-                                  onOverrideLanguage?.(t.id, null);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-default focus:bg-accent focus:text-accent-foreground"
-                              >
-                                <img
-                                  src={fileIconUrl(t.title)}
-                                  className="size-3.5 shrink-0 object-contain"
-                                  alt=""
-                                />
-                                <div className="flex flex-1 flex-col">
-                                  <span>Auto Detect</span>
-                                  <span className="text-[10px] text-muted-foreground italic">
-                                    Mode: {resolveDisplayName(t.title)}
-                                  </span>
-                                </div>
-                                {!(t as EditorTab).overrideLanguage && (
-                                  <HugeiconsIcon
-                                    icon={Tick02Icon}
-                                    className="size-3.5 text-primary"
-                                  />
-                                )}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onSelect={(e) => {
-                                  e.preventDefault();
-                                  setShowAllLanguages((v) => !v);
-                                }}
-                                className="w-full px-2.5 py-1.5 text-left text-xs text-primary/60 hover:text-primary rounded-lg transition-colors hover:bg-accent"
-                              >
-                                {showAllLanguages
-                                  ? "↑ Fewer languages"
-                                  : "↓ All languages"}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator className="my-1 border-t border-border/30" />
-                              {(showAllLanguages
-                                ? ALL_LANGUAGES
-                                : EXPOSED_LANGUAGES
-                              ).map((lang) => {
-                                const isSelected =
-                                  (t as EditorTab).overrideLanguage ===
-                                  lang.ext;
-                                return (
-                                  <DropdownMenuItem
-                                    key={lang.ext}
-                                    onSelect={() =>
-                                      onOverrideLanguage?.(t.id, lang.ext)
-                                    }
-                                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-default focus:bg-accent focus:text-accent-foreground"
-                                  >
-                                    <img
-                                      src={fileIconUrl(`dummy.${lang.ext}`)}
-                                      className="size-3.5 shrink-0 object-contain"
-                                      alt=""
-                                    />
-                                    <span className="flex-1">{lang.name}</span>
-                                    {isSelected && (
-                                      <HugeiconsIcon
-                                        icon={Tick02Icon}
-                                        className="size-3.5 text-primary"
-                                      />
-                                    )}
-                                  </DropdownMenuItem>
-                                );
-                              })}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : (
-                          <TabIcon tab={t} />
-                        )}
-                        {/* Preview tabs use italic to signal the transient state,
-                            matching the visual convention from VSCode. */}
-                        <span className={cn("truncate", isPreview && "italic")}>
-                          {label}
-                        </span>
-                        {t.kind === "editor" && t.dirty ? (
-                          <span
-                            role="img"
-                            aria-label="Unsaved changes"
-                            className="size-1.5 shrink-0 rounded-full bg-foreground/70"
-                          />
-                        ) : null}
-                      </span>
-                      {tabs.length > 1 && (
-                        // biome-ignore lint/a11y/useSemanticElements: TabsTrigger already renders a button; nesting another breaks focus.
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          aria-label="关闭标签"
-                          title="关闭标签"
-                          data-no-drag
-                          onKeyDown={(event) => {
-                            event.stopPropagation();
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              onClose(t.id);
-                            }
-                          }}
-                          onPointerDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
+                        role="button"
+                        tabIndex={isActive ? 0 : -1}
+                        aria-label="停止 agent 并收纳项目"
+                        title="停止 agent 并收纳项目"
+                        data-no-drag
+                        onKeyDown={(event) => {
+                          event.stopPropagation();
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
                             onClose(t.id);
-                          }}
-                          className="cursor-default rounded p-0.5 opacity-0 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-60"
-                        >
-                          <HugeiconsIcon
-                            icon={Cancel01Icon}
-                            size={11}
-                            strokeWidth={2}
-                          />
-                        </span>
-                      )}
-                    </>
-                  )}
+                          }
+                        }}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onClose(t.id);
+                        }}
+                        className="cursor-default rounded p-0.5 opacity-60 transition-opacity hover:bg-accent hover:opacity-100"
+                      >
+                        <HugeiconsIcon
+                          icon={Cancel01Icon}
+                          size={11}
+                          strokeWidth={2}
+                        />
+                      </span>
+                    </span>
+                  </span>
                 </TabsTrigger>
               );
 
-              const tabNode =
-                t.kind === "terminal" ? (
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>{trigger}</ContextMenuTrigger>
-                    <ContextMenuContent
-                      className="min-w-32 p-1"
-                      onCloseAutoFocus={(e) => e.preventDefault()}
+              const tabNode = (
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>{trigger}</ContextMenuTrigger>
+                  <ContextMenuContent
+                    className="min-w-32 p-1"
+                    onCloseAutoFocus={(e) => e.preventDefault()}
+                  >
+                    <ContextMenuItem
+                      className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
+                      onSelect={() => setEditingId(t.id)}
                     >
-                      <ContextMenuItem
-                        className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
-                        onSelect={() => setEditingId(t.id)}
-                      >
-                        <HugeiconsIcon
-                          icon={PencilEdit02Icon}
-                          size={13}
-                          strokeWidth={1.75}
-                        />
-                        <span className="flex-1">Rename</span>
-                      </ContextMenuItem>
-                      {(tabs.length > 1 || t.kind === "terminal") && (
-                        <>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem
-                            className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
-                            onSelect={() => onClose(t.id)}
-                          >
-                            <HugeiconsIcon
-                              icon={Cancel01Icon}
-                              size={13}
-                              strokeWidth={1.75}
-                            />
-                            <span className="flex-1">
-                              停止 agent 并收纳项目
-                            </span>
-                          </ContextMenuItem>
-                        </>
-                      )}
-                    </ContextMenuContent>
-                  </ContextMenu>
-                ) : (
-                  trigger
-                );
+                      <HugeiconsIcon
+                        icon={PencilEdit02Icon}
+                        size={13}
+                        strokeWidth={1.75}
+                      />
+                      <span className="flex-1">Rename</span>
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
+                      onSelect={() => onClose(t.id)}
+                    >
+                      <HugeiconsIcon
+                        icon={Cancel01Icon}
+                        size={13}
+                        strokeWidth={1.75}
+                      />
+                      <span className="flex-1">停止 agent 并收纳项目</span>
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+              );
 
               return (
                 <Fragment key={t.id}>

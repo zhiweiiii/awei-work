@@ -69,6 +69,7 @@ export type Slot = {
   // only if another leaf steals the slot.
   retainedLeafId: number | null;
   parked: boolean;
+  parkedScrollLine: number | null;
   oscDisposers: (() => void)[];
   observer: ResizeObserver | null;
   fitTimer: ReturnType<typeof setTimeout> | null;
@@ -76,6 +77,7 @@ export type Slot = {
   webglReapTimer: ReturnType<typeof setTimeout> | null;
   slotReapTimer: ReturnType<typeof setTimeout> | null;
   unhideRaf: number | null;
+  scrollSyncRaf: number | null;
   lastCols: number;
   lastRows: number;
   lastW: number;
@@ -158,10 +160,6 @@ export async function formatNativePathsForLeaf(
     toast.error(error instanceof Error ? error.message : String(error));
     return null;
   }
-}
-
-export function forEachSlot(fn: (slot: Slot) => void): void {
-  for (const s of slots) fn(s);
 }
 
 export function poolSize(): number {
@@ -374,6 +372,7 @@ function createSlot(): Slot {
     currentLeafId: null,
     retainedLeafId: null,
     parked: false,
+    parkedScrollLine: null,
     oscDisposers: [],
     observer: null,
     fitTimer: null,
@@ -381,6 +380,7 @@ function createSlot(): Slot {
     webglReapTimer: null,
     slotReapTimer: null,
     unhideRaf: null,
+    scrollSyncRaf: null,
     lastCols: term.cols,
     lastRows: term.rows,
     lastW: 0,
@@ -630,9 +630,10 @@ function bindSlot(slot: Slot, p: AcquireParams): void {
   slot.lastUsedAt = performance.now();
 
   cancelPendingUnhide(slot);
+  cancelPendingScrollSync(slot);
   cancelWebglReap(slot);
   cancelSlotReap(slot);
-  unparkSlotHost(slot);
+  const unparked = unparkSlotHost(slot);
   if (!fast) {
     slot.host.style.visibility = "hidden";
     if (hadWebgl) disposeSlotWebgl(slot);
@@ -713,6 +714,7 @@ function bindSlot(slot: Slot, p: AcquireParams): void {
         slot.term.refresh(0, slot.term.rows - 1);
       } catch {}
     }
+    if (unparked.wasParked) scheduleScrollSync(slot, unparked.targetLine);
     if (adapter?.isLeafFocused(p.leafId)) focusSlot(p.leafId);
   } else {
     scheduleUnhide(slot, stale || hadWebgl);
@@ -731,6 +733,10 @@ function scheduleUnhide(slot: Slot, stale: boolean): void {
           slot.term.refresh(0, slot.term.rows - 1);
         } catch {}
       }
+      const buf = slot.term.buffer.active;
+      if (buf.type === "normal" && buf.baseY > 0 && buf.viewportY >= buf.baseY) {
+        syncViewportScroll(slot, null);
+      }
       const leafId = slot.currentLeafId;
       if (leafId !== null && adapter?.isLeafFocused(leafId)) {
         focusSlot(leafId);
@@ -748,7 +754,7 @@ function cancelPendingUnhide(slot: Slot): void {
 
 function rewireSlot(slot: Slot, p: AcquireParams): void {
   slot.lastUsedAt = performance.now();
-  unparkSlotHost(slot);
+  const unparked = unparkSlotHost(slot);
   if (slot.host.parentNode !== p.container) {
     p.container.appendChild(slot.host);
   }
@@ -761,6 +767,7 @@ function rewireSlot(slot: Slot, p: AcquireParams): void {
   }
   slot.lastCols = slot.term.cols;
   slot.lastRows = slot.term.rows;
+  if (unparked.wasParked) scheduleScrollSync(slot, unparked.targetLine);
 }
 
 function setupResizeObserver(slot: Slot, p: AcquireParams): void {
@@ -885,6 +892,7 @@ function serializeSlot(slot: Slot, maxChars?: number): SerializeOutput {
 }
 
 function detachSlotFromLeaf(slot: Slot, retain: boolean): void {
+  cancelPendingScrollSync(slot);
   if (retain && slot.currentLeafId !== null) {
     slot.retainedLeafId = slot.currentLeafId;
     parkSlotHost(slot);
@@ -914,16 +922,68 @@ function detachSlotFromLeaf(slot: Slot, retain: boolean): void {
 
 // display:none makes xterm's IntersectionObserver pause rendering while the
 // buffer keeps parsing writes; visibility:hidden would not (geometry remains).
+// Browsers reset scrollTop to 0 while display:none, so capture the scroll
+// intent before hiding and force xterm's viewport/scrollbar to resync on reveal.
 function parkSlotHost(slot: Slot): void {
+  cancelPendingScrollSync(slot);
   if (slot.parked) return;
+  const buf = slot.term.buffer.active;
+  slot.parkedScrollLine =
+    buf.type === "normal" && buf.viewportY < buf.baseY ? buf.viewportY : null;
   slot.parked = true;
   slot.host.style.display = "none";
 }
 
-function unparkSlotHost(slot: Slot): void {
-  if (!slot.parked) return;
+function unparkSlotHost(slot: Slot): {
+  wasParked: boolean;
+  targetLine: number | null;
+} {
+  if (!slot.parked) return { wasParked: false, targetLine: null };
   slot.parked = false;
   slot.host.style.display = "";
+  const targetLine = slot.parkedScrollLine;
+  slot.parkedScrollLine = null;
+  return { wasParked: true, targetLine };
+}
+
+function cancelPendingScrollSync(slot: Slot): void {
+  if (slot.scrollSyncRaf !== null) {
+    cancelAnimationFrame(slot.scrollSyncRaf);
+    slot.scrollSyncRaf = null;
+  }
+}
+
+function syncViewportScroll(slot: Slot, targetLine: number | null): void {
+  const buf = slot.term.buffer.active;
+  if (buf.type !== "normal" || buf.baseY <= 0) return;
+  const desired =
+    targetLine === null
+      ? buf.baseY
+      : Math.max(0, Math.min(targetLine, buf.baseY));
+  // When ydisp already equals desired (e.g. buffer stayed pinned at bottom
+  // while display:none reset DOM scrollTop to 0), scrollToBottom() is a no-op
+  // inside xterm. Nudge by 1 line through the public API so xterm resyncs the
+  // viewport and custom scrollbar slider.
+  if (buf.viewportY === desired) {
+    slot.term.scrollLines(desired > 0 ? -1 : 1);
+  }
+  if (targetLine === null) {
+    slot.term.scrollToBottom();
+  } else {
+    slot.term.scrollToLine(desired);
+  }
+}
+
+function scheduleScrollSync(slot: Slot, targetLine: number | null): void {
+  cancelPendingScrollSync(slot);
+  const leafId = slot.currentLeafId;
+  if (leafId === null || slot.parked) return;
+  syncViewportScroll(slot, targetLine);
+  slot.scrollSyncRaf = requestAnimationFrame(() => {
+    slot.scrollSyncRaf = null;
+    if (slot.parked || slot.currentLeafId !== leafId) return;
+    syncViewportScroll(slot, targetLine);
+  });
 }
 
 function scheduleWebglReap(slot: Slot): void {
@@ -974,6 +1034,7 @@ function disposeSlot(slot: Slot): void {
   cancelSlotReap(slot);
   cancelWebglReap(slot);
   cancelPendingUnhide(slot);
+  cancelPendingScrollSync(slot);
   if (slot.fitTimer) clearTimeout(slot.fitTimer);
   if (slot.ptyTimer) clearTimeout(slot.ptyTimer);
   slot.fitTimer = null;
@@ -1273,7 +1334,7 @@ export function refreshLeafSlot(leafId: number): void {
   const slot = slots.find((s) => s.currentLeafId === leafId);
   if (!slot) return;
   cancelWebglReap(slot);
-  unparkSlotHost(slot);
+  const unparked = unparkSlotHost(slot);
   if (usePreferencesStore.getState().terminalWebglEnabled && !slot.webglAddon) {
     attachWebgl(slot);
   }
@@ -1296,6 +1357,7 @@ export function refreshLeafSlot(leafId: number): void {
   try {
     slot.term.refresh(0, slot.term.rows - 1);
   } catch {}
+  if (unparked.wasParked) scheduleScrollSync(slot, unparked.targetLine);
 }
 
 export function disposeLeafSlot(leafId: number): void {

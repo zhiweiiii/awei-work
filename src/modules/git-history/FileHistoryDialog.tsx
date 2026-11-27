@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { pathBasename as basename } from "@/lib/pathIdentity";
 import { cn } from "@/lib/utils";
 import {
   native,
@@ -54,11 +55,6 @@ type DiffState =
   | { state: "loading" }
   | { state: "loaded"; text: string; truncated: boolean }
   | { state: "error"; error: string };
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : path;
-}
 
 function normalizeError(error: unknown): string {
   if (typeof error === "string") return error;

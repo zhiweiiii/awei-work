@@ -1,7 +1,6 @@
 import { ensureMonoFontsLoaded } from "@/lib/fonts";
 import { pathIdentity } from "@/lib/pathIdentity";
 import type { AgentResume } from "@/modules/spaces/lib/projectRestore";
-import type { ShellKind } from "@/lib/shellQuote";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { terminalInputOwner } from "@/modules/terminal/lib/inputPolicy";
 import { formatDroppedPaths } from "@/modules/terminal/lib/quoteShellPath";
@@ -375,10 +374,6 @@ export function setLeafGatewayRoutes(leafId: number, routes: GatewayRoutes) {
 export function leafWorkspace(leafId: number): WorkspaceEnv | null {
   const workspace = sessions.get(leafId)?.workspace;
   return workspace ? { ...workspace } : null;
-}
-
-export function leafShellKind(leafId: number): ShellKind {
-  return sessions.get(leafId)?.pty?.shellKind ?? "unknown";
 }
 
 export function navigateFocusedBlocks(dir: -1 | 1): boolean {

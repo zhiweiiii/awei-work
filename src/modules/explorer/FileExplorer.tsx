@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { pathIdentity } from "@/lib/pathIdentity";
+import { pathBasename as basename, pathIdentity } from "@/lib/pathIdentity";
 import { toast } from "sonner";
 import type { GitStatusSnapshot, GitRepoHead } from "@/lib/native";
 import type { WorkspaceEnv } from "@/modules/workspace";
@@ -126,11 +126,6 @@ type Row =
 
 const ROW_HEIGHT = 24;
 const OVERSCAN = 8;
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : path;
-}
 
 function parentOf(path: string, fallback: string): string {
   const i = path.lastIndexOf("/");

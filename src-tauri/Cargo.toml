@@ -1,6 +1,6 @@
 [package]
 name = "awei-work"
-version = "1.2.2"
+version = "1.2.3"
 description = "awei-work, a terminal-first workspace for Claude Code and Codex"
 authors = ["zhiweiiii", "crynta"]
 license = "Apache-2.0"
@@ -40,7 +40,6 @@ ignore = "0.4"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 grep-matcher = "0.1"
-globset = "0.4"
 shared_child = "1"
 tauri-plugin-log = "2"
 tauri-plugin-os = "2"
@@ -80,9 +79,6 @@ notify = "8.2.0"
 which = "8.0.4"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 argon2 = "0.5.3"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61.3", features = [

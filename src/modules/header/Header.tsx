@@ -1,11 +1,11 @@
 import { WindowControls } from "@/components/WindowControls";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
-import type { Tab } from "@/modules/tabs";
+import type { TerminalTab } from "@/modules/tabs/lib/useTabs";
 import { TabBar } from "@/modules/tabs";
 import type { ReactNode } from "react";
 
 type Props = {
-  tabs: Tab[];
+  tabs: TerminalTab[];
   activeId: number;
   /** Active file tab's owning terminal, so the command line stays highlighted. */
   activeOwnerTabId?: number | null;
@@ -17,10 +17,8 @@ type Props = {
   onNewEditor: () => void;
   onNewGitGraph: () => void;
   onClose: (id: number) => void;
-  onPin: (id: number) => void;
   onRename: (id: number, title: string) => void;
   onReorder?: (fromId: number, toGapIndex: number) => void;
-  onOverrideLanguage?: (id: number, lang: string | null) => void;
   headerTabs?: ReactNode;
   /** Group (space) switcher rendered before the tab strip. */
   groupSwitcher?: ReactNode;
@@ -40,10 +38,8 @@ export function Header({
   onNewEditor,
   onNewGitGraph,
   onClose,
-  onPin,
   onRename,
   onReorder,
-  onOverrideLanguage,
   headerTabs,
   groupSwitcher,
   headerRight,
@@ -74,10 +70,8 @@ export function Header({
           onNewEditor={onNewEditor}
           onNewGitGraph={onNewGitGraph}
           onClose={onClose}
-          onPin={onPin}
           onRename={onRename}
           onReorder={onReorder}
-          onOverrideLanguage={onOverrideLanguage}
         />
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>
