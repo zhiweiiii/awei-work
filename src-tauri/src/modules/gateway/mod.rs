@@ -57,6 +57,20 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 static ACTIVE: AtomicUsize = AtomicUsize::new(0);
 static BOUND_PORT: AtomicU16 = AtomicU16::new(0);
 
+fn try_acquire_connection() -> bool {
+    let mut active = ACTIVE.load(Ordering::Acquire);
+    loop {
+        if active >= MAX_CONNECTIONS {
+            return false;
+        }
+        match ACTIVE.compare_exchange_weak(active, active + 1, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => return true,
+            Err(current) => active = current,
+        }
+    }
+}
+
 /// Start the gateway. Errors only if the port cannot be bound; the accept loop
 /// runs on its own thread.
 pub fn start() -> Result<(), String> {
@@ -84,12 +98,11 @@ pub fn start() -> Result<(), String> {
             while !thread_shutdown.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        if ACTIVE
-                            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
-                                (active < MAX_CONNECTIONS).then_some(active + 1)
-                            })
-                            .is_err()
-                        {
+                        if let Err(error) = stream.set_nonblocking(false) {
+                            log::warn!("gateway failed to switch socket to blocking mode: {error}");
+                            continue;
+                        }
+                        if !try_acquire_connection() {
                             continue;
                         }
                         let guard = ConnectionGuard;

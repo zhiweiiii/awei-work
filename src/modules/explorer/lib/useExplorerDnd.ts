@@ -100,7 +100,7 @@ export function useExplorerDnd({
       if (e.button !== 0) return;
       if (
         (e.target as Element).closest(
-          "input, textarea, button, [contenteditable='true']",
+          "input, textarea, [contenteditable='true'], button:not([data-fs-path])",
         )
       )
         return;
@@ -116,6 +116,7 @@ export function useExplorerDnd({
       const pointerId = e.pointerId;
       const initialRoot = optsRef.current.rootPath;
       let active = false;
+      let savedUserSelect: string | null = null;
 
       const move = (ev: PointerEvent) => {
         if (ev.pointerId !== pointerId) return;
@@ -126,6 +127,8 @@ export function useExplorerDnd({
         if (!active) {
           if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < THRESHOLD) return;
           active = true;
+          savedUserSelect = document.body.style.userSelect;
+          document.body.style.userSelect = "none";
           lastPosRef.current = { x: ev.clientX, y: ev.clientY };
           setDragLabel(name);
         }
@@ -154,6 +157,10 @@ export function useExplorerDnd({
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
         window.removeEventListener("pointercancel", cancel);
+        if (savedUserSelect !== null) {
+          document.body.style.userSelect = savedUserSelect;
+          savedUserSelect = null;
+        }
         cleanupRef.current = null;
       };
       const end = (commit: boolean) => {

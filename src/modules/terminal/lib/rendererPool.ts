@@ -663,6 +663,13 @@ function bindSlot(slot: Slot, p: AcquireParams): void {
         console.warn("[awei-work] snapshot replay failed:", e);
       }
     }
+    for (const d of slot.oscDisposers) {
+      try {
+        d();
+      } catch {}
+    }
+    slot.oscDisposers = p.registerOsc(slot.term);
+
     if (p.altScreen) {
       // TUI output is incremental cursor-positioned updates that can't be
       // replayed on top of a stale snapshot; the SIGWINCH kick below makes
@@ -677,13 +684,6 @@ function bindSlot(slot: Slot, p: AcquireParams): void {
     // bytes asked for: an inline TUI that hides the real cursor once at startup
     // and paints its own (codex, Claude Code) never sends `?25l` again, so the
     // real cursor stays lit and chases every repaint across the pane.
-
-    for (const d of slot.oscDisposers) {
-      try {
-        d();
-      } catch {}
-    }
-    slot.oscDisposers = p.registerOsc(slot.term);
   } else {
     p.drainRing((bytes) => slot.term.write(bytes));
   }
@@ -724,6 +724,7 @@ function scheduleUnhide(slot: Slot, stale: boolean): void {
     slot.unhideRaf = requestAnimationFrame(() => {
       slot.unhideRaf = null;
       slot.host.style.visibility = "";
+      if (slot.parked || slot.currentLeafId === null) return;
       if (stale) {
         if (!slot.webglAddon) attachWebgl(slot);
         try {
@@ -1262,6 +1263,8 @@ export function isLeafAltScreen(leafId: number): boolean {
 export function parkLeafSlot(leafId: number): void {
   const slot = slots.find((s) => s.currentLeafId === leafId);
   if (!slot) return;
+  cancelPendingUnhide(slot);
+  slot.host.style.visibility = "";
   parkSlotHost(slot);
   scheduleWebglReap(slot);
 }

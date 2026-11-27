@@ -495,8 +495,8 @@ function UsageBadge({ summary }: { summary: UsageSummary }) {
     <span
       aria-hidden="true"
       className={
-        "grid size-6 shrink-0 place-items-center rounded-md border bg-muted/35 " +
-        (summary.error ? "border-destructive/75" : "border-border")
+        "inline-flex size-6 shrink-0 items-center justify-center " +
+        (summary.error ? "rounded-sm ring-1 ring-destructive/75" : "")
       }
     >
       <QuotaGlyph summary={summary} compact />
@@ -514,17 +514,18 @@ function UsageCard({ summary }: { summary: UsageSummary }) {
         {summary.agent}
       </p>
       {summary.letter === "C" ? (
-        <div className="grid justify-items-center gap-0.5">
+        <div className="mt-1 grid justify-items-center gap-1">
           <QuotaClock period="short" quota={summary.short} />
           <QuotaGlyph summary={summary} />
           <QuotaClock period="week" quota={summary.week} />
         </div>
       ) : (
-        <div className="grid flex-1 grid-cols-2 items-center gap-x-1 @min-[11rem]:grid-cols-[auto_minmax(0,1fr)_auto]">
+        <div className="mt-1 grid flex-1 grid-cols-2 items-center gap-x-1.5 gap-y-1 @min-[11rem]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
           <QuotaClock
             period="short"
             quota={summary.short}
-            className="col-start-1 row-start-2 flex-col @min-[11rem]:row-start-1"
+            stacked
+            className="col-start-1 row-start-2 @min-[11rem]:row-start-1"
           />
           <div className="col-span-2 col-start-1 row-start-1 flex justify-center @min-[11rem]:col-span-1 @min-[11rem]:col-start-2">
             <QuotaGlyph summary={summary} />
@@ -532,7 +533,8 @@ function UsageCard({ summary }: { summary: UsageSummary }) {
           <QuotaClock
             period="week"
             quota={summary.week}
-            className="col-start-2 row-start-2 flex-col @min-[11rem]:col-start-3 @min-[11rem]:row-start-1"
+            stacked
+            className="col-start-2 row-start-2 @min-[11rem]:col-start-3 @min-[11rem]:row-start-1"
           />
         </div>
       )}
@@ -551,22 +553,31 @@ function UsageCard({ summary }: { summary: UsageSummary }) {
 function QuotaClock({
   period,
   quota,
+  stacked = false,
   className = "",
 }: {
   period: (typeof QUOTA_WINDOWS)[number];
   quota: QuotaHint;
+  stacked?: boolean;
   className?: string;
 }) {
   return (
     <div
       className={
-        "flex items-center justify-center gap-x-1 whitespace-nowrap text-[10px] leading-4 " +
+        (stacked
+          ? "flex flex-col items-center justify-center gap-0.5 "
+          : "flex items-center justify-center gap-x-1.5 ") +
+        "whitespace-nowrap text-[10px] leading-4 " +
         className
       }
     >
       <span className="text-muted-foreground">{QUOTA_LABELS[period]}</span>
-      <span className="sr-only">{percentLabel(quota.percent)}，重置时间</span>
-      <span className="tabular-nums text-foreground">
+      <span
+        className={`text-[11px] font-semibold tabular-nums ${toneOf(quota.percent)}`}
+      >
+        {percentLabel(quota.percent)}
+      </span>
+      <span className="tabular-nums text-muted-foreground">
         {quota.reset ?? "--"}
       </span>
     </div>
@@ -585,8 +596,8 @@ function QuotaGlyph({
   return (
     <svg
       aria-hidden="true"
-      viewBox="0 0 96 76"
-      className={compact ? "block size-5" : "block h-[4.5rem] w-full max-w-24"}
+      viewBox="15 5 66 66"
+      className={compact ? "block size-[22px]" : "block size-14 shrink-0"}
     >
       <mask
         id={maskId}
@@ -608,9 +619,21 @@ function QuotaGlyph({
       <g mask={`url(#${maskId})`}>
         {QUOTA_WINDOWS.map((period) => {
           const { percent } = summary[period];
+          // Match each glyph's actual stroked bounds (strokeWidth=12):
+          // C spans x=23.75..77, y=7..69; O and A span x=17..79, y=7..69.
           const rect = stacked
-            ? { x: 16, y: period === "short" ? 6 : 39, width: 64, height: 31 }
-            : { x: period === "short" ? 16 : 49, y: 6, width: 31, height: 64 };
+            ? {
+                x: 23.75,
+                y: period === "short" ? 7 : 38.5,
+                width: 53.25,
+                height: 30.5,
+              }
+            : {
+                x: period === "short" ? 17 : 48.5,
+                y: 7,
+                width: 30.5,
+                height: 62,
+              };
           return (
             <g key={period}>
               <rect {...rect} className="fill-foreground/15" />
@@ -629,26 +652,6 @@ function QuotaGlyph({
           );
         })}
       </g>
-      {!compact &&
-        QUOTA_WINDOWS.map((period) => {
-          const short = period === "short";
-          return (
-            <text
-              key={period}
-              x={stacked ? 49 : short ? 30 : 66}
-              y={stacked ? (short ? 25 : 51) : summary.letter === "A" ? 51 : 38}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fontSize={13}
-              strokeWidth={2.5}
-              strokeLinejoin="round"
-              paintOrder="stroke"
-              className="fill-foreground stroke-card font-semibold tabular-nums"
-            >
-              {percentLabel(summary[period].percent)}
-            </text>
-          );
-        })}
     </svg>
   );
 }

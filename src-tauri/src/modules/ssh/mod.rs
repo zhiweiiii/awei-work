@@ -224,8 +224,12 @@ pub async fn ssh_connect(
         .connecting
         .try_acquire()
         .map_err(|_| "Too many SSH connections are being opened")?;
-    if state.sessions.lock().unwrap().len() >= 12 {
-        return Err("Close an SSH connection before opening another (maximum 12)".into());
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        sessions.retain(|_, connection| !connection.closed.load(Ordering::Acquire));
+        if sessions.len() >= 12 {
+            return Err("Close an SSH connection before opening another (maximum 12)".into());
+        }
     }
     let host = login.host.trim().to_lowercase();
     if host.is_empty()
@@ -343,13 +347,19 @@ pub async fn ssh_connect(
         transfers: Mutex::new(HashMap::new()),
         transfer_slots: Semaphore::new(1),
     });
-    {
+    let rejected = {
         let mut sessions = state.sessions.lock().unwrap();
-        sessions.retain(|_, connection| !connection.closed.load(Ordering::Acquire));
+        sessions.retain(|_, conn| !conn.closed.load(Ordering::Acquire));
         if sessions.len() >= 12 {
-            return Err("Close an SSH connection before opening another (maximum 12)".into());
+            true
+        } else {
+            sessions.insert(id, connection.clone());
+            false
         }
-        sessions.insert(id, connection);
+    };
+    if rejected {
+        connection.close().await;
+        return Err("Close an SSH connection before opening another (maximum 12)".into());
     }
     Ok(Connected::Connected { id })
 }
@@ -392,6 +402,7 @@ pub async fn ssh_terminal_open(
 ) -> Result<(), String> {
     main_only(&window)?;
     grid(cols, rows)?;
+    let app = window.app_handle().clone();
     let connection = state.connection(id)?;
     if connection.terminal_opened.swap(true, Ordering::AcqRel) {
         return Err("SSH terminal is already open".into());
@@ -433,6 +444,15 @@ pub async fn ssh_terminal_open(
             }
         }
         connection.close().await;
+        if let Some(ssh) = app.try_state::<SshState>() {
+            let mut sessions = ssh.sessions.lock().unwrap();
+            if sessions
+                .get(&id)
+                .is_some_and(|stored| Arc::ptr_eq(stored, &connection))
+            {
+                sessions.remove(&id);
+            }
+        }
         let _ = on_exit.send(reason);
     });
     Ok(())

@@ -39,6 +39,20 @@ fn staged(
         .collect()
 }
 
+fn try_acquire_request() -> bool {
+    let mut count = RUNNING.load(Ordering::Relaxed);
+    loop {
+        if count >= 2 {
+            return false;
+        }
+        match RUNNING.compare_exchange_weak(count, count + 1, Ordering::Relaxed, Ordering::Relaxed)
+        {
+            Ok(_) => return true,
+            Err(current) => count = current,
+        }
+    }
+}
+
 pub(super) fn generate(
     app: &tauri::AppHandle,
     registry: &WorkspaceRegistry,
@@ -50,11 +64,9 @@ pub(super) fn generate(
     if roots.is_empty() || roots.len() > 32 {
         return Err("请选择本次提交的仓库".into());
     }
-    RUNNING
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-            (count < 2).then_some(count + 1)
-        })
-        .map_err(|_| "已有两个提交信息生成任务，请稍后重试")?;
+    if !try_acquire_request() {
+        return Err("已有两个提交信息生成任务，请稍后重试".into());
+    }
     let _request = Request;
     let patches = staged(registry, &roots, workspace)?;
     if patches.iter().all(|patch| patch.trim().is_empty()) {

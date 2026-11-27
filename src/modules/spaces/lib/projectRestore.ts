@@ -7,7 +7,7 @@ export type AgentResume = {
   cwd: string;
   lastUserMessageAt?: number;
 };
-export const RESTORE_PROJECT_LIMIT = 10;
+export const RESTORE_PROJECT_LIMIT = 20;
 
 export async function hydrateProjectMessageTimes(
   tabs: Tab[],
@@ -88,7 +88,6 @@ export function prepareProjectRestore(tabs: Tab[]): Tab[] {
     tab.kind === "terminal" && ids.has(tab.id)
       ? {
           ...tab,
-          cold: false,
           autoResume: Boolean(tab.lastAgentSession),
           ...(tab.lastAgentSession && {
             cwd: tab.lastAgentSession.cwd,

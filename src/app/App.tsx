@@ -202,6 +202,7 @@ export default function App() {
     allocId,
     booted,
     replaceTabs,
+    warmTab,
     moveProject,
     parkProject,
     activateProject,
@@ -429,7 +430,7 @@ export default function App() {
   );
 
   const activeTab = tabs.find((t) => t.id === activeId);
-  useProjectAgentRestore(tabs, booted);
+  useProjectAgentRestore(tabs, booted, warmTab);
   const isTerminalTab = activeTab?.kind === "terminal";
   const isBlockTab = activeTerminalTab?.blocks === true;
 

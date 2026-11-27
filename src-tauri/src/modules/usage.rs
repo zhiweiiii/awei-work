@@ -21,6 +21,88 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::{json, Value};
 use shared_child::SharedChild;
+use tokio::sync::watch;
+
+struct Inflight<T: Clone> {
+    slot: Mutex<Option<watch::Receiver<Option<T>>>>,
+}
+
+impl<T: Clone> Inflight<T> {
+    fn new() -> Self {
+        Self {
+            slot: Mutex::new(None),
+        }
+    }
+}
+
+struct InflightGuard<T: Clone + 'static> {
+    inflight: &'static Inflight<T>,
+    tx: Option<watch::Sender<Option<T>>>,
+}
+
+impl<T: Clone + 'static> InflightGuard<T> {
+    fn finish(mut self, value: T) -> T {
+        *self.inflight.slot.lock().expect("usage inflight") = None;
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(Some(value.clone()));
+        }
+        value
+    }
+}
+
+impl<T: Clone + 'static> Drop for InflightGuard<T> {
+    fn drop(&mut self) {
+        if self.tx.is_some() {
+            *self.inflight.slot.lock().expect("usage inflight") = None;
+        }
+    }
+}
+
+async fn run_coalesced<T, F, Fut>(
+    inflight: &'static Inflight<T>,
+    fallback: impl FnOnce() -> T,
+    work: F,
+) -> T
+where
+    T: Clone + Send + Sync + 'static,
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = T>,
+{
+    enum Action<T: Clone + 'static> {
+        Wait(watch::Receiver<Option<T>>),
+        Run(InflightGuard<T>),
+    }
+
+    loop {
+        let action = {
+            let mut slot = inflight.slot.lock().expect("usage inflight");
+            if let Some(rx) = slot.as_ref() {
+                Action::Wait(rx.clone())
+            } else {
+                let (tx, rx) = watch::channel(None);
+                *slot = Some(rx);
+                Action::Run(InflightGuard {
+                    inflight,
+                    tx: Some(tx),
+                })
+            }
+        };
+        match action {
+            Action::Run(guard) => {
+                let value = work().await;
+                return guard.finish(value);
+            }
+            Action::Wait(mut rx) => match rx.wait_for(|v| v.is_some()).await {
+                Ok(guard) => {
+                    if let Some(value) = guard.as_ref() {
+                        return value.clone();
+                    }
+                }
+                Err(_) => return fallback(),
+            },
+        }
+    }
+}
 
 const MIN_REFETCH: Duration = Duration::from_secs(300);
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -219,6 +301,11 @@ fn fetch() -> Usage {
     }
 }
 
+fn claude_inflight() -> &'static Inflight<Usage> {
+    static INFLIGHT: std::sync::OnceLock<Inflight<Usage>> = std::sync::OnceLock::new();
+    INFLIGHT.get_or_init(Inflight::new)
+}
+
 /// Tauri command: the subscription's current limit usage.
 ///
 /// `force` bypasses the refetch floor for an explicit refresh. Without it a
@@ -233,19 +320,30 @@ pub async fn claude_usage(force: Option<bool>) -> Usage {
             }
         }
     }
-    let usage = tauri::async_runtime::spawn_blocking(fetch)
-        .await
-        .unwrap_or_else(|e| Usage {
+    run_coalesced(
+        claude_inflight(),
+        || Usage {
             fetched_at: now_secs(),
-            error: Some(format!("查询任务失败：{e}")),
+            error: Some("查询任务已取消".into()),
             ..Usage::default()
-        });
-    // A failure is not worth caching: the next open should try again rather
-    // than show the same error for five minutes.
-    if usage.error.is_none() {
-        *cache().lock().expect("usage cache") = Some((usage.clone(), Instant::now()));
-    }
-    usage
+        },
+        || async {
+            let usage = tauri::async_runtime::spawn_blocking(fetch)
+                .await
+                .unwrap_or_else(|e| Usage {
+                    fetched_at: now_secs(),
+                    error: Some(format!("查询任务失败：{e}")),
+                    ..Usage::default()
+                });
+            // A failure is not worth caching: the next open should try again rather
+            // than show the same error for five minutes.
+            if usage.error.is_none() {
+                *cache().lock().expect("usage cache") = Some((usage.clone(), Instant::now()));
+            }
+            usage
+        },
+    )
+    .await
 }
 
 /// The cached answer without ever spawning anything, for first paint.
@@ -507,6 +605,11 @@ fn fetch_codex() -> CodexUsage {
     }
 }
 
+fn codex_inflight() -> &'static Inflight<CodexUsage> {
+    static INFLIGHT: std::sync::OnceLock<Inflight<CodexUsage>> = std::sync::OnceLock::new();
+    INFLIGHT.get_or_init(Inflight::new)
+}
+
 /// Tauri command: current Codex subscription limit usage.
 #[tauri::command]
 pub async fn codex_usage(force: Option<bool>) -> CodexUsage {
@@ -518,17 +621,29 @@ pub async fn codex_usage(force: Option<bool>) -> CodexUsage {
             }
         }
     }
-    let usage = tauri::async_runtime::spawn_blocking(fetch_codex)
-        .await
-        .unwrap_or_else(|error| CodexUsage {
+    run_coalesced(
+        codex_inflight(),
+        || CodexUsage {
             fetched_at: now_secs(),
-            error: Some(format!("Codex 用量查询任务失败：{error}")),
+            error: Some("Codex 用量查询任务已取消".into()),
             ..CodexUsage::default()
-        });
-    if usage.error.is_none() {
-        *codex_cache().lock().expect("codex usage cache") = Some((usage.clone(), Instant::now()));
-    }
-    usage
+        },
+        || async {
+            let usage = tauri::async_runtime::spawn_blocking(fetch_codex)
+                .await
+                .unwrap_or_else(|error| CodexUsage {
+                    fetched_at: now_secs(),
+                    error: Some(format!("Codex 用量查询任务失败：{error}")),
+                    ..CodexUsage::default()
+                });
+            if usage.error.is_none() {
+                *codex_cache().lock().expect("codex usage cache") =
+                    Some((usage.clone(), Instant::now()));
+            }
+            usage
+        },
+    )
+    .await
 }
 
 /// The cached Codex answer without starting the app-server.
@@ -637,6 +752,11 @@ fn fetch_agy() -> Result<Vec<AgyQuotaGroup>, String> {
     parse_agy_usage(&output.stdout)
 }
 
+fn agy_inflight() -> &'static Inflight<AgyUsage> {
+    static INFLIGHT: std::sync::OnceLock<Inflight<AgyUsage>> = std::sync::OnceLock::new();
+    INFLIGHT.get_or_init(Inflight::new)
+}
+
 #[tauri::command]
 pub async fn agy_usage(force: Option<bool>) -> AgyUsage {
     if !force.unwrap_or(false) {
@@ -646,26 +766,38 @@ pub async fn agy_usage(force: Option<bool>) -> AgyUsage {
             }
         }
     }
-    let fetched = tauri::async_runtime::spawn_blocking(fetch_agy)
-        .await
-        .map_err(|_| "Antigravity 用量查询任务失败".to_string())
-        .and_then(std::convert::identity);
-    match fetched {
-        Ok(groups) => {
-            let usage = AgyUsage {
-                groups,
-                fetched_at: now_secs(),
-                error: None,
-            };
-            *agy_cache().lock().expect("agy usage cache") = Some((usage.clone(), Instant::now()));
-            usage
-        }
-        Err(error) => AgyUsage {
+    run_coalesced(
+        agy_inflight(),
+        || AgyUsage {
             fetched_at: now_secs(),
-            error: Some(error),
+            error: Some("Antigravity 用量查询任务已取消".into()),
             ..AgyUsage::default()
         },
-    }
+        || async {
+            let fetched = tauri::async_runtime::spawn_blocking(fetch_agy)
+                .await
+                .map_err(|_| "Antigravity 用量查询任务失败".to_string())
+                .and_then(std::convert::identity);
+            match fetched {
+                Ok(groups) => {
+                    let usage = AgyUsage {
+                        groups,
+                        fetched_at: now_secs(),
+                        error: None,
+                    };
+                    *agy_cache().lock().expect("agy usage cache") =
+                        Some((usage.clone(), Instant::now()));
+                    usage
+                }
+                Err(error) => AgyUsage {
+                    fetched_at: now_secs(),
+                    error: Some(error),
+                    ..AgyUsage::default()
+                },
+            }
+        },
+    )
+    .await
 }
 
 #[tauri::command]

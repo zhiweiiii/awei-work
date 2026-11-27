@@ -32,7 +32,7 @@ Find code in the file tree, then inspect and edit it in the editor. Organize pro
 
 ![File tree and code editor](docs/screenshots/files.png)
 
-On restart, the app restores up to ten eligible projects based on when you last sent a message to an AI agent, along with Claude Code / Codex sessions whose identities have been confirmed.
+On restart, the app restores up to twenty eligible projects based on when you last sent a message to an AI agent, along with Claude Code / Codex sessions whose identities have been confirmed.
 
 ### Review changes, then commit
 

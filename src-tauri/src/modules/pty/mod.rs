@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use tauri::ipc::{Channel, Response};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::modules::workspace::{user_spawn_cwd_or_home, WorkspaceEnv, WorkspaceRegistry};
 pub(crate) use session::{valid_grid, Session, SizeOwner, WebMsg};
@@ -509,12 +509,9 @@ pub fn pty_list_shells() -> Vec<shell_init::ShellInfo> {
 /// tabs it still has, so any queued command naming one that is gone is dropped
 /// rather than waiting for a terminal that will never come back.
 #[tauri::command]
-pub fn web_sync_tabs(
-    state: tauri::State<PtyState>,
-    schedule: tauri::State<crate::modules::schedule::ScheduleState>,
-    app: tauri::AppHandle,
-    tabs: Vec<WebTab>,
-) {
+pub async fn web_sync_tabs(app: tauri::AppHandle, tabs: Vec<WebTab>) {
+    let state = app.state::<PtyState>();
+    let schedule = app.state::<crate::modules::schedule::ScheduleState>();
     let live: std::collections::HashSet<u32> = tabs.iter().map(|t| t.leaf_id).collect();
     let context_changed = {
         let previous = state.web_tabs.lock().unwrap();
@@ -530,18 +527,27 @@ pub fn web_sync_tabs(
     if context_changed {
         crate::modules::pet::context_changed(&app, None);
     }
-    let before = schedule.revision();
-    for leaf in schedule
+    let dead: std::collections::HashSet<u32> = schedule
         .list()
         .iter()
+        .filter(|j| {
+            j.target == crate::modules::schedule::Target::Terminal
+                && !j.paused
+                && !j.finished
+                && !live.contains(&j.leaf_id)
+        })
         .map(|j| j.leaf_id)
-        .filter(|leaf| !live.contains(leaf))
-        .collect::<std::collections::HashSet<_>>()
-    {
-        schedule.forget_leaf(leaf);
-    }
-    if schedule.revision() != before {
-        let _ = app.emit(crate::modules::schedule::SCHEDULE_EVENT, schedule.list());
+        .collect();
+    if !dead.is_empty() {
+        let app_for_blocking = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let schedule = app_for_blocking.state::<crate::modules::schedule::ScheduleState>();
+            if schedule.forget_leaves(&dead) {
+                let _ = app_for_blocking
+                    .emit(crate::modules::schedule::SCHEDULE_EVENT, schedule.list());
+            }
+        })
+        .await;
     }
 }
 

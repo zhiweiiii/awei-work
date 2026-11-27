@@ -1505,6 +1505,23 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [setTabs],
   );
 
+  const warmTab = useCallback(
+    (id: number) => {
+      setTabs((prev) => {
+        const target = prev.find((tab) => tab.id === id);
+        if (
+          !target?.cold ||
+          (target.kind === "terminal" && target.parked)
+        )
+          return prev;
+        return prev.map((tab) =>
+          tab.id === id ? { ...tab, cold: false } : tab,
+        );
+      });
+    },
+    [setTabs],
+  );
+
   return {
     tabs,
     activeId,
@@ -1512,6 +1529,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     allocId,
     booted,
     replaceTabs,
+    warmTab,
     reorderTabByGap,
     reorderHeaderProjects,
     updateProjectAgentSnapshot,

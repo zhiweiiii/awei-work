@@ -193,11 +193,17 @@ impl ScheduleState {
     }
 
     /// Never reuse an expired terminal binding for another session.
-    pub fn forget_leaf(&self, leaf_id: u32) {
+    pub fn forget_leaves(&self, dead_leaves: &std::collections::HashSet<u32>) -> bool {
+        if dead_leaves.is_empty() {
+            return false;
+        }
         let mut jobs = self.jobs.lock().unwrap();
         let mut changed = false;
         for job in jobs.iter_mut().filter(|j| {
-            j.target == Target::Terminal && j.leaf_id == leaf_id && !j.paused && !j.finished
+            j.target == Target::Terminal
+                && dead_leaves.contains(&j.leaf_id)
+                && !j.paused
+                && !j.finished
         }) {
             job.paused = true;
             job.last_result = Some("原终端已关闭，请重新绑定终端".into());
@@ -209,6 +215,7 @@ impl ScheduleState {
             }
             self.revision.fetch_add(1, Ordering::Relaxed);
         }
+        changed
     }
 
     /// Jobs whose moment has come, without removing them: a job is only taken
@@ -301,8 +308,7 @@ fn next_daily(time: &str, after: i64) -> Result<i64, String> {
 }
 
 #[tauri::command]
-pub fn schedule_add_at(
-    state: tauri::State<ScheduleState>,
+pub async fn schedule_add_at(
     app: tauri::AppHandle,
     leaf_id: Option<u32>,
     command: String,
@@ -310,36 +316,41 @@ pub fn schedule_add_at(
     daily_time: Option<String>,
     target: Target,
 ) -> Result<Job, String> {
-    let now = now_ms();
-    let fire_at = match &daily_time {
-        Some(time) => next_daily(time, now)?,
-        None => fire_at.filter(|t| *t > now).ok_or("请选择未来的发送时间")?,
-    };
-    let command = command.trim().to_string();
-    if command.is_empty() || command.len() > 65536 {
-        return Err("消息为空或过长".into());
-    }
-    let leaf_id = if target == Target::Terminal {
-        leaf_id.ok_or("请选择终端")?
-    } else {
-        0
-    };
-    let job = Job {
-        id: state.next_id.fetch_add(1, Ordering::Relaxed) + 1,
-        leaf_id,
-        command,
-        fire_at,
-        created_at: now,
-        daily_time,
-        target,
-        running: false,
-        finished: false,
-        last_result: None,
-        paused: false,
-    };
-    state.insert(&job)?;
-    let _ = app.emit(SCHEDULE_EVENT, state.list());
-    Ok(job)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<ScheduleState>();
+        let now = now_ms();
+        let fire_at = match &daily_time {
+            Some(time) => next_daily(time, now)?,
+            None => fire_at.filter(|t| *t > now).ok_or("请选择未来的发送时间")?,
+        };
+        let command = command.trim().to_string();
+        if command.is_empty() || command.len() > 65536 {
+            return Err("消息为空或过长".into());
+        }
+        let leaf_id = if target == Target::Terminal {
+            leaf_id.ok_or("请选择终端")?
+        } else {
+            0
+        };
+        let job = Job {
+            id: state.next_id.fetch_add(1, Ordering::Relaxed) + 1,
+            leaf_id,
+            command,
+            fire_at,
+            created_at: now,
+            daily_time,
+            target,
+            running: false,
+            finished: false,
+            last_result: None,
+            paused: false,
+        };
+        state.insert(&job)?;
+        let _ = app.emit(SCHEDULE_EVENT, state.list());
+        Ok(job)
+    })
+    .await
+    .map_err(|e| format!("定时任务操作失败：{e}"))?
 }
 
 /// Write a job's command into its terminal, as if it had been typed there.
@@ -351,28 +362,29 @@ fn deliver(app: &tauri::AppHandle, job: &Job) -> Result<(), String> {
         .web_leaf_session(job.leaf_id, app)
         .ok_or_else(|| "terminal not open yet".to_string())?;
     let schedule = app.state::<ScheduleState>();
-    let mut jobs = schedule.jobs.lock().unwrap();
-    let current = jobs
-        .iter_mut()
-        .find(|j| {
-            j.id == job.id
-                && j.leaf_id == job.leaf_id
-                && j.fire_at == job.fire_at
-                && j.is_due(now_ms())
-        })
-        .ok_or("任务已取消或暂停")?;
-    current.running = true;
-    if let Err(error) = schedule.save(&jobs) {
-        if let Some(current) = jobs.iter_mut().find(|j| j.id == job.id) {
-            current.running = false;
+    {
+        let mut jobs = schedule.jobs.lock().unwrap();
+        let current = jobs
+            .iter_mut()
+            .find(|j| {
+                j.id == job.id
+                    && j.leaf_id == job.leaf_id
+                    && j.fire_at == job.fire_at
+                    && j.is_due(now_ms())
+            })
+            .ok_or("任务已取消或暂停")?;
+        current.running = true;
+        if let Err(error) = schedule.save(&jobs) {
+            if let Some(current) = jobs.iter_mut().find(|j| j.id == job.id) {
+                current.running = false;
+            }
+            return Err(error);
         }
-        return Err(error);
     }
     session.web_submit(
         &format!("schedule-{}-{}", job.id, job.fire_at),
         &job.command,
     )?;
-    drop(jobs);
     Ok(())
 }
 
@@ -500,16 +512,20 @@ pub fn start(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-pub fn schedule_add(
-    state: tauri::State<ScheduleState>,
+pub async fn schedule_add(
     app: tauri::AppHandle,
     leaf_id: u32,
     command: String,
     delay_seconds: u64,
 ) -> Result<Job, String> {
-    let job = state.add(leaf_id, command, Duration::from_secs(delay_seconds))?;
-    let _ = app.emit(SCHEDULE_EVENT, state.list());
-    Ok(job)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<ScheduleState>();
+        let job = state.add(leaf_id, command, Duration::from_secs(delay_seconds))?;
+        let _ = app.emit(SCHEDULE_EVENT, state.list());
+        Ok(job)
+    })
+    .await
+    .map_err(|e| format!("定时任务操作失败：{e}"))?
 }
 
 #[tauri::command]
@@ -521,26 +537,27 @@ pub fn schedule_list(state: tauri::State<ScheduleState>) -> Result<Vec<Job>, Str
 }
 
 #[tauri::command]
-pub fn schedule_cancel(
-    state: tauri::State<ScheduleState>,
-    app: tauri::AppHandle,
-    id: u64,
-) -> Result<bool, String> {
-    let removed = state.cancel(id)?;
-    if removed {
-        let _ = app.emit(SCHEDULE_EVENT, state.list());
-    }
-    Ok(removed)
+pub async fn schedule_cancel(app: tauri::AppHandle, id: u64) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<ScheduleState>();
+        let removed = state.cancel(id)?;
+        if removed {
+            let _ = app.emit(SCHEDULE_EVENT, state.list());
+        }
+        Ok(removed)
+    })
+    .await
+    .map_err(|e| format!("定时任务操作失败：{e}"))?
 }
 
 #[tauri::command]
-pub fn schedule_rebind(
-    state: tauri::State<ScheduleState>,
-    app: tauri::AppHandle,
-    id: u64,
-    leaf_id: u32,
-) -> Result<(), String> {
-    state.rebind(id, leaf_id)?;
-    let _ = app.emit(SCHEDULE_EVENT, state.list());
-    Ok(())
+pub async fn schedule_rebind(app: tauri::AppHandle, id: u64, leaf_id: u32) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<ScheduleState>();
+        state.rebind(id, leaf_id)?;
+        let _ = app.emit(SCHEDULE_EVENT, state.list());
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("定时任务操作失败：{e}"))?
 }
