@@ -100,12 +100,8 @@ impl<S: JsonlState> ReaderCache<S> {
                         entry.try_lock().ok().map(|e| (e.used, path.clone()))
                     })
                     .min_by_key(|(used, _)| *used)
-                    .map(|(_, path)| path);
-                if let Some(oldest) = oldest {
-                    entries.remove(&oldest);
-                } else {
-                    return None;
-                }
+                    .map(|(_, path)| path)?;
+                entries.remove(&oldest);
             }
             entries
                 .entry(path.to_path_buf())

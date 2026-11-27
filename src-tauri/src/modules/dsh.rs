@@ -335,7 +335,7 @@ pub fn sessions_for(cwd: &str) -> Vec<DshSession> {
             updated_at,
         });
     }
-    found.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    found.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
     found.truncate(40);
     found
 }
