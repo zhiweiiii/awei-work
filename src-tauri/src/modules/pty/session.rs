@@ -106,6 +106,7 @@ pub struct Session {
     /// directory that once ran one must not show that conversation over an
     /// idle prompt - and the choice of which transcript to read.
     agent: Arc<Mutex<Option<AgentRun>>>,
+    agy_runtime: Option<tempfile::TempDir>,
     web_submissions: Mutex<std::collections::VecDeque<(String, Result<(), String>)>>,
     /// Web viewers attached to this session (bounded queues).
     web_subs: Mutex<Vec<(u64, SyncSender<WebMsg>)>>,
@@ -225,6 +226,87 @@ impl Drop for SerializedMaster {
     }
 }
 
+pub(crate) fn capture_console(
+    command: portable_pty::CommandBuilder,
+    timeout: Duration,
+) -> Result<String, String> {
+    let (master, mut child, mut reader, mut writer, job) = {
+        let _guard = CONPTY_LIFECYCLE_LOCK
+            .lock()
+            .map_err(|_| "PTY unavailable")?;
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 80,
+                cols: 512,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| error.to_string())?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|error| error.to_string())?;
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|error| error.to_string())?;
+        let child = pair
+            .slave
+            .spawn_command(command)
+            .map_err(|error| error.to_string())?;
+        drop(pair.slave);
+        let job = child
+            .process_id()
+            .and_then(|id| crate::modules::proc::job::ProcessJob::create_for(id).ok());
+        (pair.master, child, reader, writer, job)
+    };
+    let master = SerializedMaster(Some(master));
+    let output = thread::spawn(move || {
+        let mut filter = DaFilter::new();
+        let mut bytes = Vec::new();
+        let mut chunk = Vec::new();
+        let mut buffer = [0_u8; 8192];
+        while let Ok(size) = reader.read(&mut buffer) {
+            if size == 0 {
+                break;
+            }
+            chunk.clear();
+            filter.process(&buffer[..size], &mut chunk, |reply| {
+                let _ = writer.write_all(reply);
+            });
+            let keep = chunk
+                .len()
+                .min((256_usize * 1024).saturating_sub(bytes.len()));
+            bytes.extend_from_slice(&chunk[..keep]);
+        }
+        bytes
+    });
+    let started = Instant::now();
+    let status = if job.is_some() {
+        loop {
+            if started.elapsed() >= timeout {
+                break Err("console request timed out".into());
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => thread::sleep(Duration::from_millis(100)),
+                Err(error) => break Err(error.to_string()),
+            }
+        }
+    } else {
+        let _ = child.kill();
+        Err("could not isolate console process".into())
+    };
+    drop(job);
+    let _ = child.wait();
+    drop(master);
+    let bytes = output.join().map_err(|_| "console reader failed")?;
+    if !status?.success() {
+        return Err("console command failed".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "invalid console response".into())
+}
+
 impl Session {
     pub(super) fn terminate(&self) {
         #[cfg(windows)]
@@ -324,14 +406,18 @@ impl Session {
 
     pub fn agent_resume(&self, cwd: &str) -> Option<AgentResume> {
         let run = self.agent.lock().ok()?.as_ref()?.clone();
-        if !matches!(run.name.as_str(), "claude" | "codex") {
+        if !matches!(run.name.as_str(), "claude" | "codex" | "agy") {
             return None;
         }
         let file = self.web_transcript_file(cwd)?;
         let id = crate::modules::sessions::session_id_for_file(&file, &run.name, cwd)?;
-        let last_user_message_at = self
+        let mut last_user_message_at = self
             .web_transcript(cwd, &run.name)
             .and_then(|transcript| transcript.last_user_message_at());
+        if run.name == "agy" {
+            last_user_message_at =
+                last_user_message_at.max(crate::modules::agy::last_user_message_at(cwd, &id));
+        }
         let current = self.agent.lock().ok()?;
         current.as_ref().filter(|current| {
             current.id == run.id && current.name == run.name && current.file.as_ref() == Some(&file)
@@ -361,13 +447,27 @@ impl Session {
 
     fn web_transcript_file(&self, cwd: &str) -> Option<std::path::PathBuf> {
         let run = self.agent.lock().ok()?.as_ref()?.clone();
-        if run.file.is_some() {
+        let agy_id = if run.name == "agy" {
+            self.agy_runtime.as_ref().and_then(|runtime| {
+                crate::modules::agy::log_conversation(
+                    &runtime.path().join("session.log"),
+                    run.started_at,
+                )
+            })
+        } else {
+            None
+        };
+        if run.file.is_some()
+            && agy_id
+                .as_ref()
+                .is_none_or(|id| Some(id) == run.session_id.as_ref())
+        {
             return run.file;
         }
         let file = crate::modules::sessions::resolve_session_file(
             cwd,
             &run.name,
-            run.session_id.as_deref(),
+            agy_id.as_deref().or(run.session_id.as_deref()),
             run.started_at,
         )?;
         let mut agent = self.agent.lock().ok()?;
@@ -375,6 +475,9 @@ impl Session {
         if current.id != run.id || current.name != run.name || current.session_id != run.session_id
         {
             return None;
+        }
+        if agy_id.is_some() {
+            current.session_id = agy_id;
         }
         current.file = Some(file.clone());
         Some(file)
@@ -410,7 +513,9 @@ impl Session {
                 return Err("terminal exited".into());
             }
             let agent = self.agent.lock().map_err(|_| "agent state unavailable")?;
-            let bracketed = agent.as_ref().is_some_and(|run| run.name == "codex");
+            let bracketed = agent
+                .as_ref()
+                .is_some_and(|run| matches!(run.name.as_str(), "codex" | "agy"));
             drop(agent);
             if bracketed {
                 writer.write_all(b"\x1b[200~").map_err(|e| e.to_string())?;
@@ -657,8 +762,25 @@ pub fn spawn(
     };
     let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
 
-    let (cmd, shell_kind) =
-        shell_init::build_command(cwd.clone(), workspace, blocks, shell, gateway_routes)?;
+    let agy_runtime = if shell_init::agy_executable().is_some() {
+        match tempfile::Builder::new().prefix("awei-agy-").tempdir() {
+            Ok(runtime) => Some(runtime),
+            Err(error) if gateway_routes.agy.is_some() => {
+                return Err(format!("无法准备 Anti 网关配置：{error}"));
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    let (cmd, shell_kind) = shell_init::build_command(
+        cwd.clone(),
+        workspace,
+        blocks,
+        shell,
+        gateway_routes,
+        agy_runtime.as_ref().map(tempfile::TempDir::path),
+    )?;
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
 
@@ -696,6 +818,7 @@ pub fn spawn(
         cwd,
         leaf_id,
         agent: agent_name.clone(),
+        agy_runtime,
         web_submissions: Mutex::new(std::collections::VecDeque::new()),
         web_subs: Mutex::new(Vec::new()),
         next_web_subscription: AtomicU64::new(1),

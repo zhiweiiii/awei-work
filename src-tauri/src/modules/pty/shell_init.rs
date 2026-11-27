@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use portable_pty::CommandBuilder;
 
+use crate::modules::gateway::{self, config::ApiFormat};
 use crate::modules::workspace::{self, WorkspaceEnv};
 
 #[cfg(windows)]
@@ -25,6 +26,7 @@ pub enum ShellQuoteKind {
 pub struct GatewayRoutes {
     pub claude: Option<String>,
     pub codex: Option<String>,
+    pub agy: Option<String>,
 }
 
 pub fn build_command(
@@ -33,11 +35,12 @@ pub fn build_command(
     blocks: bool,
     shell: Option<String>,
     gateway_routes: GatewayRoutes,
+    agy_runtime: Option<&Path>,
 ) -> Result<(CommandBuilder, ShellQuoteKind), String> {
     let shell = sanitize_shell_override(shell);
     #[cfg(windows)]
     {
-        windows::build(cwd, workspace, blocks, shell, gateway_routes)
+        windows::build(cwd, workspace, blocks, shell, gateway_routes, agy_runtime)
     }
 }
 
@@ -114,7 +117,7 @@ fn apply_claude_gateway(cmd: &mut CommandBuilder, provider_id: Option<&str>) -> 
     let Some(provider_id) = provider_id else {
         return Ok(());
     };
-    let env = crate::modules::gateway::shell_env(provider_id, false)
+    let env = gateway::shell_env(provider_id, ApiFormat::Anthropic)
         .ok_or("Claude Code 网关不可用，请检查右下角供应商设置")?;
     log::info!("pty gateway: routing this shell through {}", env.base_url);
     cmd.env("ANTHROPIC_BASE_URL", env.base_url);
@@ -136,7 +139,7 @@ fn apply_codex_gateway(cmd: &mut CommandBuilder, provider_id: Option<&str>) -> R
     let Some(provider_id) = provider_id else {
         return Ok(());
     };
-    let env = crate::modules::gateway::shell_env(provider_id, true)
+    let env = gateway::shell_env(provider_id, ApiFormat::OpenaiResponses)
         .ok_or("Codex 网关不可用，请检查右下角供应商设置")?;
     cmd.env("AWEI_WORK_CODEX_GATEWAY", format!("{}/v1", env.base_url));
     cmd.env("AWEI_WORK_CODEX_GATEWAY_TOKEN", env.token);
@@ -144,6 +147,41 @@ fn apply_codex_gateway(cmd: &mut CommandBuilder, provider_id: Option<&str>) -> R
     if let Some(window) = env.context_window {
         cmd.env("AWEI_WORK_CODEX_GATEWAY_CONTEXT", window.to_string());
     }
+    Ok(())
+}
+
+fn apply_agy_gateway(
+    cmd: &mut CommandBuilder,
+    provider_id: &str,
+    runtime: &Path,
+) -> Result<(), String> {
+    let env = gateway::shell_env(provider_id, ApiFormat::Gemini)
+        .ok_or("Anti 网关不可用，请检查 Gemini 供应商和默认模型")?;
+    let settings = serde_json::json!({
+        "modelProvider": "gemini",
+        "customModelsConfig": {
+            "customModels": {
+                "awei-work-route": {
+                    "modelId": "awei-work-route",
+                    "modelName": "gemini-api://awei-work-route",
+                    "label": env.model,
+                    "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+                    "maxTokens": env.context_window.unwrap_or(200_000),
+                    "modelFeatures": {
+                        "supportsImages": true,
+                        "supportsToolCalls": true,
+                        "zeroShotCapable": true
+                    }
+                }
+            }
+        }
+    });
+    let path = runtime.join("gateway.json");
+    std::fs::write(&path, settings.to_string())
+        .map_err(|e| format!("无法准备 Anti 网关配置：{e}"))?;
+    cmd.env("AWEI_WORK_AGY_GATEWAY_SETTINGS", path);
+    cmd.env("AWEI_WORK_AGY_GATEWAY", env.base_url);
+    cmd.env("AWEI_WORK_AGY_GATEWAY_TOKEN", env.token);
     Ok(())
 }
 
@@ -216,6 +254,7 @@ mod windows {
         blocks: bool,
         shell: Option<String>,
         gateway_routes: super::GatewayRoutes,
+        agy_runtime: Option<&Path>,
     ) -> Result<(CommandBuilder, super::ShellQuoteKind), String> {
         let shell_path = shell
             .map(|s| s.trim().to_string())
@@ -233,11 +272,20 @@ mod windows {
 
         let mut cmd = CommandBuilder::new(&shell_path);
         super::apply_common(&mut cmd, cwd, blocks);
-        if gateway_routes.codex.is_some() && !is_powershell && !is_bash {
-            return Err("Codex 网关需要使用 PowerShell 或 Git Bash".into());
+        let agy_gateway = gateway_routes.agy.as_deref().zip(agy_runtime);
+        cmd.env_remove("AWEI_WORK_AGY_LOG");
+        cmd.env_remove("AWEI_WORK_AGY_GATEWAY_SETTINGS");
+        if let Some(runtime) = agy_runtime {
+            cmd.env("AWEI_WORK_AGY_LOG", runtime.join("session.log"));
+        }
+        if (gateway_routes.codex.is_some() || agy_gateway.is_some()) && !is_powershell && !is_bash {
+            return Err("Codex 和 Anti 网关需要使用 PowerShell 或 Git Bash".into());
         }
         super::apply_claude_gateway(&mut cmd, gateway_routes.claude.as_deref())?;
         super::apply_codex_gateway(&mut cmd, gateway_routes.codex.as_deref())?;
+        if let Some((provider_id, runtime)) = agy_gateway {
+            super::apply_agy_gateway(&mut cmd, provider_id, runtime)?;
+        }
 
         if is_powershell {
             match prepare_ps_profile() {
@@ -250,8 +298,8 @@ mod windows {
                     cmd.arg(profile);
                 }
                 Err(e) => {
-                    if gateway_routes.codex.is_some() {
-                        return Err(format!("无法加载 Codex 网关的终端配置：{e}"));
+                    if gateway_routes.codex.is_some() || agy_gateway.is_some() {
+                        return Err(format!("无法加载网关的终端配置：{e}"));
                     }
                     log::warn!("powershell shell integration disabled: {e}");
                 }
@@ -269,8 +317,8 @@ mod windows {
                     cmd.arg("-i");
                 }
                 Err(e) => {
-                    if gateway_routes.codex.is_some() {
-                        return Err(format!("无法加载 Codex 网关的终端配置：{e}"));
+                    if gateway_routes.codex.is_some() || agy_gateway.is_some() {
+                        return Err(format!("无法加载网关的终端配置：{e}"));
                     }
                     log::warn!("bash shell integration disabled: {e}");
                 }

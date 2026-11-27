@@ -45,6 +45,7 @@ pub enum Target {
     Terminal,
     Codex,
     Claude,
+    Agy,
     Pet,
 }
 

@@ -317,13 +317,14 @@ export default function SshWorkspace({
                     <HugeiconsIcon
                       icon={ArrowRight01Icon}
                       size={12}
-                      className={`shrink-0 transition-transform ${expandedGroups.has(group.id) ? "rotate-90" : ""}`}
+                      className={`shrink-0 motion-safe:transition-transform motion-safe:duration-150 ${expandedGroups.has(group.id) ? "rotate-90" : ""}`}
                       aria-hidden="true"
                     />
                     <span className="truncate">{group.name}</span>
                   </button>
                   <div
                     id={`ssh-group-${group.id}-connections`}
+                    className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-150"
                     hidden={!expandedGroups.has(group.id)}
                   >
                     {profiles
@@ -365,7 +366,7 @@ export default function SshWorkspace({
                           >
                             <button
                               type="button"
-                              className={`flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-accent ${selected === entry.id ? "bg-accent" : ""}`}
+                              className={`flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-accent motion-safe:transition-colors ${selected === entry.id ? "bg-accent" : ""}`}
                               disabled={busy}
                               title="点击打开，右键管理"
                               onClick={() => openConnection(entry)}

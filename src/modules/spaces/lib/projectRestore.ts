@@ -2,7 +2,7 @@ import type { Tab, TerminalTab } from "@/modules/tabs/lib/useTabs";
 import { setLeafCwd } from "@/modules/terminal/lib/panes";
 
 export type AgentResume = {
-  agent: "claude" | "codex";
+  agent: "claude" | "codex" | "agy";
   id: string;
   cwd: string;
   lastUserMessageAt?: number;
@@ -48,7 +48,9 @@ export function isAgentResume(value: unknown): value is AgentResume {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
   return (
-    (item.agent === "claude" || item.agent === "codex") &&
+    (item.agent === "claude" ||
+      item.agent === "codex" ||
+      item.agent === "agy") &&
     typeof item.id === "string" &&
     /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(item.id) &&
     typeof item.cwd === "string" &&

@@ -13,6 +13,7 @@ use tauri::ipc::{Channel, Response};
 use tauri::Emitter;
 
 use crate::modules::workspace::{user_spawn_cwd_or_home, WorkspaceEnv, WorkspaceRegistry};
+pub(crate) use session::capture_console;
 pub(crate) use session::{valid_grid, Session, SizeOwner, WebMsg};
 
 /// Emitted when the PTY grid changed because an end claimed the session. The

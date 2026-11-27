@@ -14,6 +14,7 @@ pub enum GitCommitMessageModel {
     Luna,
     CodexDefault,
     ClaudeDefault,
+    AgyDefault,
     Gateway,
 }
 

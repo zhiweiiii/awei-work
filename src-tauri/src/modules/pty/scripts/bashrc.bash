@@ -26,10 +26,39 @@ if [ -z "$__TERAX_HOOKS_LOADED" ]; then
 
   if [ "$(type -t agy)" = file ]; then
     agy() {
+      case "${1-}" in
+        -h|--help|--version|[!-]*)
+          command agy "$@"
+          return
+          ;;
+      esac
+      local options=() arg should_log=1
+      for arg in "$@"; do
+        case "$arg" in
+          --log-file|--log-file=*|--print|--print=*|--prompt|--prompt=*|-p|--input-format|--input-format=*) should_log=0 ;;
+          --model|--model=*|--settings|--settings=*)
+            if [ -n "$AWEI_WORK_AGY_GATEWAY_SETTINGS" ]; then
+              printf '%s\n' 'Select the Anti model in the awei-work gateway for this terminal.' >&2
+              return 2
+            fi
+            ;;
+        esac
+      done
       if [ -t 0 ] && [ -t 1 ]; then
         printf '\e]133;C;agy\e\\'
+        if [ "$should_log" -eq 1 ] && [ -n "$AWEI_WORK_AGY_LOG" ]; then
+          : > "${AWEI_WORK_AGY_LOG//\\//}"
+          options+=("--log-file=$AWEI_WORK_AGY_LOG")
+        fi
       fi
-      command agy "$@"
+      if [ -n "$AWEI_WORK_AGY_GATEWAY_SETTINGS" ]; then
+        GEMINI_API_KEY="$AWEI_WORK_AGY_GATEWAY_TOKEN" GOOGLE_GEMINI_BASE_URL="$AWEI_WORK_AGY_GATEWAY" \
+          MSYS2_ARG_CONV_EXCL='--log-file=;--settings=' command agy "${options[@]}" "--settings=$AWEI_WORK_AGY_GATEWAY_SETTINGS" --model awei-work-route "$@"
+      elif [ "${#options[@]}" -gt 0 ]; then
+        MSYS2_ARG_CONV_EXCL='--log-file=' command agy "${options[@]}" "$@"
+      else
+        command agy "$@"
+      fi
     }
   fi
 

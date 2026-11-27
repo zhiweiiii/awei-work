@@ -23,6 +23,16 @@ pub fn run(
     timeout: Duration,
     cancelled: impl Fn() -> bool,
 ) -> Result<String, String> {
+    run_with_output(command, prompt, timeout, cancelled, capture)
+}
+
+pub(crate) fn run_with_output<T: Send + 'static>(
+    command: &mut Command,
+    prompt: String,
+    timeout: Duration,
+    cancelled: impl Fn() -> bool,
+    capture_output: impl FnOnce(std::process::ChildStdout) -> T + Send + 'static,
+) -> Result<T, String> {
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -41,7 +51,7 @@ pub fn run(
     let input = std::thread::spawn(move || stdin.write_all(prompt.as_bytes()));
     let stdout = child.stdout.take().ok_or("missing stdout")?;
     let stderr = child.stderr.take().ok_or("missing stderr")?;
-    let output = std::thread::spawn(move || capture(stdout));
+    let output = std::thread::spawn(move || capture_output(stdout));
     let errors = std::thread::spawn(move || capture(stderr));
     let started = Instant::now();
     let status = loop {

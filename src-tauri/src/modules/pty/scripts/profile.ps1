@@ -6,6 +6,40 @@
 if ($global:__TERAX_HOOKS_LOADED) { return }
 $global:__TERAX_HOOKS_LOADED = $true
 
+if ($env:AWEI_WORK_AGY_LOG) {
+    function global:agy {
+        $cli = Get-Command agy.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $cli) { Write-Error 'Antigravity CLI is not installed or is missing from PATH.'; return }
+        if ($args.Count -gt 0 -and ($args[0] -notlike '-*' -or $args[0] -in @('--help', '-h', '--version'))) {
+            & $cli @args
+            return
+        }
+        $options = @()
+        if (-not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected -and
+            -not ($args -match '^(--log-file|--print|--prompt|-p|--input-format)(=|$)')) {
+            Remove-Item -LiteralPath $env:AWEI_WORK_AGY_LOG -Force -ErrorAction SilentlyContinue
+            $options += @('--log-file', $env:AWEI_WORK_AGY_LOG)
+        }
+        if (-not $env:AWEI_WORK_AGY_GATEWAY_SETTINGS) {
+            & $cli @options @args
+            return
+        }
+        if ($args -match '^(--settings|--model)(=|$)') {
+            Write-Error 'Select the Anti model in the awei-work gateway for this terminal.'
+            return
+        }
+        $oldKey, $oldBase = $env:GEMINI_API_KEY, $env:GOOGLE_GEMINI_BASE_URL
+        try {
+            $env:GEMINI_API_KEY = $env:AWEI_WORK_AGY_GATEWAY_TOKEN
+            $env:GOOGLE_GEMINI_BASE_URL = $env:AWEI_WORK_AGY_GATEWAY
+            & $cli @options --settings $env:AWEI_WORK_AGY_GATEWAY_SETTINGS --model awei-work-route @args
+        } finally {
+            $env:GEMINI_API_KEY = $oldKey
+            $env:GOOGLE_GEMINI_BASE_URL = $oldBase
+        }
+    }
+}
+
 if ($env:AWEI_WORK_CODEX_GATEWAY) {
     function global:codex {
         $cli = Get-Command codex -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1

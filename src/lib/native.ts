@@ -248,10 +248,12 @@ export const native = {
     invoke<{ running: boolean; port: number | null }>("dsh_status"),
   agentSessionLastMessageAt: (
     cwd: string,
-    agent: "claude" | "codex",
+    agent: "claude" | "codex" | "agy",
     id: string,
   ) =>
     invoke<number | null>("agent_session_last_message_at", { cwd, agent, id }),
+  agentResumeCommand: (cwd: string, agent: string, id: string) =>
+    invoke<string>("agent_resume_command", { cwd, agent, id }),
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   workspaceAuthorize: (
     path: string,

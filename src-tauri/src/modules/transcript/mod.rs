@@ -8,7 +8,7 @@
 //! the one thing only it knows: what the program is asking you to pick right
 //! now (see `docs/mobile.md`).
 //!
-//! Three backends, one shape:
+//! Each agent maps its records into the same transcript shape:
 //!
 //! - `claude` - `~/.claude/projects/<escaped cwd>/<session>.jsonl`, appended
 //!   as the session runs. Shared incremental JSONL parsing.
@@ -16,7 +16,9 @@
 //!   no port and `opencode export` costs a process per read, so the database
 //!   is read directly, read-only.
 //! - `codex` - `~/.codex/sessions/<year>/<month>/<day>/rollout-*.jsonl`.
+//! - `agy` - the CLI's per-conversation transcript.jsonl.
 
+mod agy;
 mod claude;
 mod codex;
 mod jsonl;
@@ -24,6 +26,7 @@ mod opencode;
 
 pub(crate) fn read_file(file: &std::path::Path, agent: &str) -> Option<std::sync::Arc<Transcript>> {
     match agent {
+        "agy" => agy::read_file(file),
         "claude" => claude::read_file(file, false),
         "codex" => codex::read_file(file, false),
         _ => None,
@@ -179,7 +182,7 @@ pub struct Working {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Transcript {
-    /// "claude", "codex", or "opencode".
+    /// "claude", "codex", "agy", or "opencode".
     pub source: &'static str,
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -201,7 +204,7 @@ pub struct Transcript {
 
 impl Transcript {
     pub fn last_user_message_at(&self) -> Option<i64> {
-        if self.source == "codex" {
+        if matches!(self.source, "codex" | "agy") {
             return self.prompt_at;
         }
         self.messages

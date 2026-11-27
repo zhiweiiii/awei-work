@@ -766,7 +766,8 @@ function ScopedSourceControlPanel({
     const backend =
       gitCommitMessageModel === "luna" ||
       gitCommitMessageModel === "codex-default" ||
-      gitCommitMessageModel === "claude-default"
+      gitCommitMessageModel === "claude-default" ||
+      gitCommitMessageModel === "agy-default"
         ? gitCommitMessageModel
         : "gateway";
     const gatewayModel =
@@ -799,12 +800,7 @@ function ScopedSourceControlPanel({
       useCommitMessageDraftStore.getState().finish(draftKey);
       errorToast(`${label}：生成提交信息失败`, error);
     }
-  }, [
-    draftKey,
-    scm.repoGroups,
-    scm.repo,
-    sourceControl.repo,
-  ]);
+  }, [draftKey, scm.repoGroups, scm.repo, sourceControl.repo]);
   const changedCount = scm.fileEntries.length;
   const pushStatusLabel = upstreamBadgeLabel(scm.status?.upstream);
   const hasUpstream = !!scm.status?.upstream;
@@ -2185,7 +2181,7 @@ function CommitFeedback({
   return (
     <div
       className={cn(
-        "pointer-events-none absolute inset-x-3 top-[calc(100%-0.25rem)] z-20 flex min-w-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-lg shadow-black/15 backdrop-blur transition-all duration-200",
+        "pointer-events-none absolute inset-x-3 top-[calc(100%-0.25rem)] z-20 flex min-w-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-lg shadow-black/15 backdrop-blur motion-safe:transition-[opacity,translate] motion-safe:duration-200",
         isVisible ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0",
         isError
           ? "border-destructive/30 bg-card/95 text-destructive"
@@ -2195,7 +2191,9 @@ function CommitFeedback({
       <span
         className={cn(
           "size-1.5 shrink-0 rounded-full",
-          isError ? "bg-destructive" : "bg-foreground/70",
+          isError
+            ? "bg-destructive"
+            : "bg-emerald-500 motion-safe:animate-in motion-safe:zoom-in-50 motion-safe:duration-200",
         )}
       />
       <span

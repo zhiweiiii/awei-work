@@ -448,7 +448,8 @@ export default function App() {
       const project = tabsRef.current.find((tab) => tab.id === id);
       if (project?.kind !== "terminal") return false;
       updateTab(id, { gatewayRoutes: routes });
-      for (const leaf of leafIds(project.paneTree)) setLeafGatewayRoutes(leaf, routes);
+      for (const leaf of leafIds(project.paneTree))
+        setLeafGatewayRoutes(leaf, routes);
       return true;
     },
     [updateTab],
@@ -1633,8 +1634,9 @@ export default function App() {
   );
 
   const runAgy = useCallback(
-    (resume: boolean) => {
+    (resume: boolean, id?: string) => {
       if (!isTerminalTab || activeLeafId === null) return;
+      const cwd = leafCwd(activeLeafId);
       const isCurrent = () => {
         if (
           activeIdRef.current !== activeId ||
@@ -1642,9 +1644,22 @@ export default function App() {
         )
           return false;
         const tab = tabsRef.current.find((item) => item.id === activeId);
-        return tab?.kind === "terminal" && tab.activeLeafId === activeLeafId;
+        return (
+          tab?.kind === "terminal" &&
+          tab.activeLeafId === activeLeafId &&
+          leafCwd(activeLeafId) === cwd
+        );
       };
-      void submitToIdleLeaf(activeLeafId, resume ? "agy -c" : "agy", isCurrent)
+      if (id && !cwd) return;
+      const command =
+        id && cwd
+          ? native.agentResumeCommand(cwd, "agy", id)
+          : Promise.resolve(resume ? "agy -c" : "agy");
+      void command
+        .then(
+          (value) =>
+            isCurrent() && submitToIdleLeaf(activeLeafId, value, isCurrent),
+        )
         .then((started) => {
           if (!isCurrent()) return;
           if (started) terminalRefs.current.get(activeLeafId)?.focus();
@@ -2018,7 +2033,9 @@ export default function App() {
           <RemoteManagerDialog
             open={remoteManagerOpen}
             onOpenChange={setRemoteManagerOpen}
-            repoRoot={multiRepo.activeRepo ?? sourceControl.repo?.repoRoot ?? null}
+            repoRoot={
+              multiRepo.activeRepo ?? sourceControl.repo?.repoRoot ?? null
+            }
             onAdd={multiRepo.addRemote}
             onRemove={multiRepo.removeRemote}
             onSetUrl={multiRepo.setRemoteUrl}

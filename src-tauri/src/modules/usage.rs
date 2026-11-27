@@ -578,8 +578,9 @@ fn parse_agy_usage(output: &str) -> Result<Vec<AgyQuotaGroup>, String> {
 fn fetch_agy() -> Result<Vec<AgyQuotaGroup>, String> {
     let executable = crate::modules::pty::shell_init::agy_executable()
         .ok_or("找不到 Antigravity CLI，请先安装并登录 agy")?;
-    let mut cmd = Command::new(executable);
-    cmd.current_dir(std::env::temp_dir());
+    let mut cmd = portable_pty::CommandBuilder::new(executable);
+    cmd.cwd(std::env::temp_dir());
+    cmd.env("NO_COLOR", "1");
     cmd.args([
         "--print",
         "/usage",
@@ -588,14 +589,14 @@ fn fetch_agy() -> Result<Vec<AgyQuotaGroup>, String> {
         "--print-timeout",
         "15s",
     ]);
-    let output = crate::modules::proc::background::run(
-        &mut cmd,
-        String::new(),
-        Duration::from_secs(20),
-        || false,
-    )
-    .map_err(|_| "读取 Antigravity 用量失败，请确认 agy 已登录并可运行 /usage")?;
-    parse_agy_usage(&output)
+    let output = crate::modules::pty::capture_console(cmd, Duration::from_secs(20))
+        .map_err(|_| "读取 Antigravity 用量失败，请确认 agy 已登录并可运行 /usage")?;
+    let json = output
+        .find('{')
+        .zip(output.rfind('}'))
+        .and_then(|(start, end)| output.get(start..=end))
+        .ok_or("agy 未返回用量 JSON")?;
+    parse_agy_usage(json)
 }
 
 #[tauri::command]

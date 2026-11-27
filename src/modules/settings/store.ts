@@ -247,6 +247,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     current: null,
     global: null,
     codexGlobal: null,
+    agyGlobal: null,
   } as ClaudeGatewayConfig,
   explorerGitDecorations: true,
   protectedBranches: ["main", "master", "develop"],
@@ -563,7 +564,11 @@ export async function setCompactFolders(value: boolean): Promise<void> {
 }
 
 /** The wire format a relay speaks. Mirrors `gateway::config::ApiFormat`. */
-export type ClaudeApiFormat = "anthropic" | "openai_chat" | "openai_responses";
+export type ClaudeApiFormat =
+  | "anthropic"
+  | "openai_chat"
+  | "openai_responses"
+  | "gemini";
 
 /** How a relay wants its credential presented. Mirrors
  *  `gateway::config::AuthStyle`. It cannot be inferred from the format:
@@ -615,6 +620,7 @@ export type ClaudeGatewayConfig = {
    *  session. */
   global: string | null;
   codexGlobal: string | null;
+  agyGlobal: string | null;
 };
 
 type LegacyAgentEnvPreset = {
@@ -640,7 +646,13 @@ function migrateAgentEnvPresets(
   presets: LegacyAgentEnvPreset[] | undefined,
 ): ClaudeGatewayConfig {
   if (!Array.isArray(presets) || !presets.length)
-    return { providers: [], current: null, global: null, codexGlobal: null };
+    return {
+      providers: [],
+      current: null,
+      global: null,
+      codexGlobal: null,
+      agyGlobal: null,
+    };
   const providers = presets
     .filter(
       (preset) =>
@@ -661,7 +673,13 @@ function migrateAgentEnvPresets(
     }));
   return normalizePreference(
     "claudeGateway",
-    { providers, current: null, global: null, codexGlobal: null },
+    {
+      providers,
+      current: null,
+      global: null,
+      codexGlobal: null,
+      agyGlobal: null,
+    },
     DEFAULT_PREFERENCES,
   ) as ClaudeGatewayConfig;
 }

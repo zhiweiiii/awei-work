@@ -4,14 +4,19 @@ import type {
 } from "@/modules/settings/store";
 import { invoke } from "@tauri-apps/api/core";
 
-export type GatewayAgent = "claude" | "codex";
+export const GATEWAY_GLOBAL_KEYS = {
+  claude: "global",
+  codex: "codexGlobal",
+  agy: "agyGlobal",
+} as const;
+export type GatewayAgent = keyof typeof GATEWAY_GLOBAL_KEYS;
 export type GatewayRoutes = Partial<Record<GatewayAgent, string | null>>;
 
 export function isGatewayRoutes(value: unknown): value is GatewayRoutes {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   return Object.entries(value).every(
     ([key, id]) =>
-      (key === "claude" || key === "codex") &&
+      (key === "claude" || key === "codex" || key === "agy") &&
       (id === null || (typeof id === "string" && id.length > 0)),
   );
 }
@@ -20,16 +25,24 @@ export function supportsGatewayAgent(
   provider: ClaudeProvider,
   agent: GatewayAgent,
 ) {
-  return agent === "codex"
-    ? provider.apiFormat === "openai_responses"
-    : provider.apiFormat !== "openai_responses";
+  switch (agent) {
+    case "codex":
+      return provider.apiFormat === "openai_responses";
+    case "agy":
+      return provider.apiFormat === "gemini";
+    default:
+      return (
+        provider.apiFormat === "anthropic" ||
+        provider.apiFormat === "openai_chat"
+      );
+  }
 }
 
 export function globalGatewayRoute(
   config: ClaudeGatewayConfig,
   agent: GatewayAgent,
 ) {
-  return agent === "codex" ? config.codexGlobal : config.global;
+  return config[GATEWAY_GLOBAL_KEYS[agent]];
 }
 
 export function resolvedGatewayRoutes(
@@ -46,7 +59,11 @@ export function resolvedGatewayRoutes(
       ? id
       : null;
   };
-  return { claude: resolve("claude"), codex: resolve("codex") };
+  return {
+    claude: resolve("claude"),
+    codex: resolve("codex"),
+    agy: resolve("agy"),
+  };
 }
 
 let synced: { config: ClaudeGatewayConfig; pending: Promise<void> } | undefined;

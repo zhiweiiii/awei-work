@@ -26,6 +26,7 @@ import {
   respawnSession,
 } from "@/modules/terminal";
 import {
+  GATEWAY_GLOBAL_KEYS,
   type GatewayAgent,
   type GatewayRoutes,
   globalGatewayRoute,
@@ -143,11 +144,16 @@ type Props = {
   project: TerminalTab | null;
   onChangeProjectRoutes: (id: number, routes: GatewayRoutes) => boolean;
 };
-const AGENT_LABELS = { claude: "Claude Code", codex: "Codex" } as const;
+const AGENT_LABELS = {
+  claude: "Claude Code",
+  codex: "Codex",
+  agy: "Anti",
+} as const;
 const FORMATS = {
   anthropic: "Anthropic Messages",
   openai_chat: "OpenAI Chat",
   openai_responses: "OpenAI Responses",
+  gemini: "Gemini",
 } as const;
 
 async function restartIdleLeaves(leaves: number[]): Promise<number> {
@@ -287,7 +293,7 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
 
       let leaves: number[];
       if (scope === "global") {
-        const key = agent === "codex" ? "codexGlobal" : "global";
+        const key = GATEWAY_GLOBAL_KEYS[agent];
         const next = { ...latest, [key]: provider?.id ?? null };
         if (!(await persist(next))) return;
         leaves = liveLeafIds().filter(
@@ -402,12 +408,13 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
         previous &&
         (previous.apiFormat !== provider.apiFormat ||
           previous.contextWindow !== provider.contextWindow ||
-          (provider.apiFormat === "openai_responses" &&
+          ((provider.apiFormat === "openai_responses" ||
+            provider.apiFormat === "gemini") &&
             previous.models.default !== provider.models.default))
       ) {
         const affected = liveLeafIds().filter((id) => {
           const routes = resolvedGatewayRoutes(latest, leafGatewayRoutes(id));
-          return routes.claude === provider.id || routes.codex === provider.id;
+          return Object.values(routes).includes(provider.id);
         });
         const pending = await restartIdleLeaves(affected);
         if (pending > 0)
@@ -432,6 +439,7 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
         global: latest.global === provider.id ? null : latest.global,
         codexGlobal:
           latest.codexGlobal === provider.id ? null : latest.codexGlobal,
+        agyGlobal: latest.agyGlobal === provider.id ? null : latest.agyGlobal,
       });
     } finally {
       finishOperation();
@@ -442,12 +450,12 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
     draft !== null &&
     draft.baseUrl.trim() !== "" &&
     draft.apiKey.trim() !== "" &&
-    (draft.apiFormat !== "openai_responses" ||
+    ((draft.apiFormat !== "openai_responses" && draft.apiFormat !== "gemini") ||
       draft.models.default.trim() !== "");
 
   return (
     <>
-      {(["claude", "codex"] as const).map((kind) => {
+      {(["claude", "codex", "agy"] as const).map((kind) => {
         const override = project?.gatewayRoutes?.[kind];
         const id =
           override === undefined ? globalGatewayRoute(config, kind) : override;
@@ -502,6 +510,7 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
                   <SelectContent>
                     <SelectItem value="claude">Claude Code</SelectItem>
                     <SelectItem value="codex">Codex</SelectItem>
+                    <SelectItem value="agy">Antigravity CLI</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -543,7 +552,9 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
               <p className="text-[10.5px] leading-snug text-muted-foreground">
                 {agent === "codex"
                   ? "为 Codex 添加支持 OpenAI Responses 的供应商。"
-                  : "为 Claude Code 添加 Anthropic Messages 或 OpenAI Chat 供应商。"}
+                  : agent === "agy"
+                    ? "为 Anti 添加 Gemini 兼容供应商。"
+                    : "为 Claude Code 添加 Anthropic Messages 或 OpenAI Chat 供应商。"}
               </p>
             ) : null}
 
@@ -649,7 +660,11 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
                       apiFormat:
                         agent === "codex"
                           ? "openai_responses"
-                          : EMPTY_DRAFT.apiFormat,
+                          : agent === "agy"
+                            ? "gemini"
+                            : EMPTY_DRAFT.apiFormat,
+                      authStyle:
+                        agent === "agy" ? "api_key" : EMPTY_DRAFT.authStyle,
                     })
                   }
                 >
@@ -734,6 +749,9 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="gemini" className="text-[11px]">
+                          Gemini（Anti）
+                        </SelectItem>
                         <SelectItem
                           value="openai_responses"
                           className="text-[11px]"
@@ -767,7 +785,9 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
                           Bearer
                         </SelectItem>
                         <SelectItem value="api_key" className="text-[11px]">
-                          x-api-key
+                          {draft.apiFormat === "gemini"
+                            ? "x-goog-api-key"
+                            : "x-api-key"}
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -784,7 +804,11 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
                         models: { ...draft.models, default: e.target.value },
                       })
                     }
-                    placeholder="deepseek-v4.1-flash"
+                    placeholder={
+                      draft.apiFormat === "gemini"
+                        ? "Gemini 模型 ID"
+                        : "deepseek-v4.1-flash"
+                    }
                     spellCheck={false}
                   />
                 </Field>
@@ -805,7 +829,8 @@ function ScopedModelGatewayButton({ project, onChangeProjectRoutes }: Props) {
                     填大了仍会被上游拒绝。
                   </span>
                 </Field>
-                {draft.apiFormat !== "openai_responses" && (
+                {(draft.apiFormat === "anthropic" ||
+                  draft.apiFormat === "openai_chat") && (
                   <div className="grid grid-cols-3 gap-2">
                     {(["opus", "sonnet", "haiku"] as const).map((role) => (
                       <Field key={role} label={ROLE_LABELS[role]}>

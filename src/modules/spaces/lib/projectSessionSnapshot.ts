@@ -17,7 +17,9 @@ export function hasProjectAgent(tabs: Tab[]): boolean {
   return eligibleProjects(tabs).some((tab) =>
     leafIds(tab.paneTree).some((leaf) => {
       const id = ptyIdForLeaf(leaf);
-      return id !== null && (agents[id] === "claude" || agents[id] === "codex");
+      return (
+        id !== null && ["claude", "codex", "agy"].includes(agents[id] ?? "")
+      );
     }),
   );
 }
@@ -35,7 +37,8 @@ export async function projectSessionSnapshot(
       leafIds(tab.paneTree).map(async (leaf) => {
         const ptyId = ptyIdForLeaf(leaf);
         const agent = ptyId === null ? undefined : agents[ptyId];
-        if (ptyId === null || (agent !== "claude" && agent !== "codex")) return;
+        if (ptyId === null || !["claude", "codex", "agy"].includes(agent ?? ""))
+          return;
         const cwd = findLeafCwd(tab.paneTree, leaf) ?? tab.cwd;
         if (!cwd) return;
         try {

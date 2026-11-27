@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
 
 type Session = {
   /** `dsh` sessions have no terminal resume: they open in the dsh web page. */
-  agent: "claude" | "codex" | "dsh";
+  agent: "claude" | "codex" | "agy" | "dsh";
   id: string;
   title: string;
   updatedAt: number;
@@ -29,12 +29,14 @@ type Session = {
 const AGENT_LABEL: Record<Session["agent"], string> = {
   claude: "Claude Code",
   codex: "Codex",
+  agy: "Antigravity CLI",
   dsh: "dsh",
 };
 
 const AGENT_DOT: Record<Session["agent"], string> = {
   claude: "bg-orange-500",
   codex: "bg-sky-500",
+  agy: "bg-violet-500",
   dsh: "bg-indigo-500",
 };
 
@@ -61,7 +63,7 @@ type Props = {
   /** Runs a command in the terminal being shown. Null when there is none,
    *  which is when there is nothing to resume into. */
   onRun: ((command: string) => void) | null;
-  onRunAgy: ((resume: boolean) => void) | null;
+  onRunAgy: ((resume: boolean, id?: string) => void) | null;
   /** Opens the dsh web page, starting the server first if it is not running.
    *  dsh has no terminal surface, so its conversations do not go through a
    *  shell at all. Null while the list has no directory to scope them to. */
@@ -130,20 +132,20 @@ export function SessionHistoryMenu({ cwd, onRun, onRunAgy, onOpenDsh }: Props) {
   const loading = open && sessions === null;
 
   const resume = (session: Session) => {
+    if (currentWorkspaceScopeKey() !== scopeKey || !sessions?.includes(session))
+      return;
+    if (session.agent === "agy") {
+      onRunAgy?.(true, session.id);
+      return;
+    }
     const command = resumeCommand(session);
     // A dsh conversation cannot be resumed from a shell. Its row still opens
     // the web page, which is the only place that conversation exists.
     if (command === null) {
-      if (currentWorkspaceScopeKey() === scopeKey) onOpenDsh?.();
+      onOpenDsh?.();
       return;
     }
-    if (
-      !onRun ||
-      currentWorkspaceScopeKey() !== scopeKey ||
-      !sessions?.includes(session)
-    )
-      return;
-    onRun(command);
+    onRun?.(command);
   };
 
   return (
@@ -179,7 +181,10 @@ export function SessionHistoryMenu({ cwd, onRun, onRunAgy, onOpenDsh }: Props) {
           <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
           新对话 Codex
         </DropdownMenuItem>
-        <DropdownMenuItem disabled={!onRunAgy} onSelect={() => onRunAgy?.(false)}>
+        <DropdownMenuItem
+          disabled={!onRunAgy}
+          onSelect={() => onRunAgy?.(false)}
+        >
           <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
           新对话 Antigravity CLI
         </DropdownMenuItem>
@@ -228,9 +233,15 @@ export function SessionHistoryMenu({ cwd, onRun, onRunAgy, onOpenDsh }: Props) {
         {sessions?.map((session) => (
           <DropdownMenuItem
             key={`${session.agent}:${session.id}`}
-            disabled={session.agent === "dsh" ? !onOpenDsh : !onRun}
+            disabled={
+              session.agent === "dsh"
+                ? !onOpenDsh
+                : session.agent === "agy"
+                  ? !onRunAgy
+                  : !onRun
+            }
             onSelect={() => resume(session)}
-            className="flex flex-col items-start gap-0.5 py-1.5"
+            className="flex flex-col items-start gap-0.5 py-1.5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-150"
           >
             <span className="w-full truncate text-[11.5px]">
               {session.title}

@@ -16,6 +16,7 @@ pub enum ApiFormat {
     /// OpenAI Chat Completions. Bodies are converted in both directions.
     OpenaiChat,
     OpenaiResponses,
+    Gemini,
 }
 
 /// How a relay wants its credential presented. It cannot be inferred from the
@@ -127,7 +128,46 @@ impl Provider {
             ApiFormat::Anthropic => join_once(base, "/v1/messages"),
             ApiFormat::OpenaiChat => join_once(base, "/chat/completions"),
             ApiFormat::OpenaiResponses => join_once(base, "/v1/responses"),
+            ApiFormat::Gemini => base.to_owned(),
         }
+    }
+
+    pub(super) fn gemini_url(&self, model: &str, operation: &str) -> Option<reqwest::Url> {
+        let model = model.strip_prefix("models/").unwrap_or(model);
+        if model.is_empty()
+            || model.len() > 200
+            || !model
+                .bytes()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'-' | b'_' | b'.'))
+        {
+            return None;
+        }
+        let mut url = reqwest::Url::parse(self.base_url.trim()).ok()?;
+        if !matches!(url.scheme(), "https" | "http")
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return None;
+        }
+        let has_version = url
+            .path()
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .is_some_and(|part| matches!(part, "v1" | "v1beta"));
+        let mut segments = url.path_segments_mut().ok()?;
+        segments.pop_if_empty();
+        if !has_version {
+            segments.push("v1beta");
+        }
+        segments
+            .push("models")
+            .push(&format!("{model}:{operation}"));
+        drop(segments);
+        if operation == "streamGenerateContent" {
+            url.query_pairs_mut().append_pair("alt", "sse");
+        }
+        Some(url)
     }
 
     /// OpenCode Zen's Go plan rejects any request without `x-opencode-session`

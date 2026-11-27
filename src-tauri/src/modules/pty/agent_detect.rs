@@ -391,11 +391,15 @@ fn command_words(command: &str) -> Vec<String> {
 
 fn resume_id(cmd: &[u8]) -> Option<String> {
     let tokens = command_words(std::str::from_utf8(cmd).ok()?);
-    tokens.windows(2).find_map(|pair| {
-        if !matches!(pair[0].as_str(), "resume" | "--resume" | "--session-id") {
-            return None;
-        }
-        let id = pair[1].as_str();
+    tokens.iter().enumerate().find_map(|(index, token)| {
+        let id = match token.as_str() {
+            "resume" | "--resume" | "--session-id" | "--conversation" | "-r" => {
+                tokens.get(index + 1)?.as_str()
+            }
+            _ => token
+                .strip_prefix("--conversation=")
+                .or_else(|| token.strip_prefix("--resume="))?,
+        };
         crate::modules::sessions::valid_id(id).then(|| id.to_string())
     })
 }

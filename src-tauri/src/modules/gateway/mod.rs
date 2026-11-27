@@ -190,25 +190,37 @@ pub struct ShellEnv {
     pub model: String,
 }
 
-pub fn shell_env(provider_id: &str, responses: bool) -> Option<ShellEnv> {
+pub fn shell_env(provider_id: &str, format: ApiFormat) -> Option<ShellEnv> {
     let provider = config::provider_by_id(provider_id)?;
-    if responses != (provider.api_format == ApiFormat::OpenaiResponses) {
+    if !matching_format(provider.api_format, format) {
         return None;
     }
     let model = config::strip_context_marker(&provider.models.default).to_string();
-    if responses && model.is_empty() {
+    if format != ApiFormat::Anthropic && model.is_empty() {
         return None;
+    }
+    if format == ApiFormat::Gemini {
+        provider.gemini_url(&model, "generateContent")?;
     }
     if !RUNNING.load(Ordering::Acquire) && start().is_err() {
         return None;
     }
     let port = BOUND_PORT.load(Ordering::Acquire);
+    let mut base_url = format!("http://{BIND_ADDR}:{port}{PIN_PREFIX}{}", provider.id);
+    if format == ApiFormat::Gemini {
+        base_url.push_str("/m/");
+        base_url.push_str(model.strip_prefix("models/").unwrap_or(&model));
+    }
     Some(ShellEnv {
-        base_url: format!("http://{BIND_ADDR}:{port}{PIN_PREFIX}{}", provider.id),
+        base_url,
         token: config::token().ok()?,
         context_window: provider.context_window,
         model,
     })
+}
+
+fn matching_format(actual: ApiFormat, requested: ApiFormat) -> bool {
+    actual == requested || (requested == ApiFormat::Anthropic && actual == ApiFormat::OpenaiChat)
 }
 
 /// Replace the provider list and selection. The frontend owns persistence, so
@@ -276,8 +288,9 @@ pub(crate) fn generate_text(
         let mut bytes = [0u8; 16];
         getrandom::fill(&mut bytes).map_err(|_| "无法生成转发请求标识")?;
         let session: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        let response = upstream::send(
+        let response = send_text_request(
             &provider,
+            model,
             &outbound,
             Some(&session),
             Some(Duration::from_secs(120)),
@@ -309,7 +322,19 @@ pub(crate) fn generate_text(
             value
         };
         let mut text = String::new();
-        if provider.api_format == ApiFormat::OpenaiResponses {
+        if provider.api_format == ApiFormat::Gemini {
+            for part in reply["candidates"][0]["content"]["parts"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                if part["thought"] != true {
+                    if let Some(value) = part["text"].as_str() {
+                        text.push_str(value);
+                    }
+                }
+            }
+        } else if provider.api_format == ApiFormat::OpenaiResponses {
             if let Some(output) = reply["output"].as_array() {
                 for item in output {
                     append_text(&mut text, &item["content"], "output_text");
@@ -338,6 +363,12 @@ fn append_text(output: &mut String, content: &Value, kind: &str) {
 }
 
 fn text_request(provider: &Provider, model: &str, prompt: &str, max_tokens: u32) -> Value {
+    if provider.api_format == ApiFormat::Gemini {
+        return json!({
+            "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
+            "generationConfig": { "maxOutputTokens": max_tokens },
+        });
+    }
     if provider.api_format == ApiFormat::OpenaiResponses {
         return json!({
             "model": model,
@@ -355,6 +386,20 @@ fn text_request(provider: &Provider, model: &str, prompt: &str, max_tokens: u32)
         convert::request_to_openai(&body)
     } else {
         body
+    }
+}
+
+fn send_text_request(
+    provider: &Provider,
+    model: &str,
+    body: &Value,
+    session: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<upstream::Response, String> {
+    if provider.api_format == ApiFormat::Gemini {
+        upstream::send_gemini(provider, model, "generateContent", body, timeout)
+    } else {
+        upstream::send(provider, body, session, timeout)
     }
 }
 
@@ -394,10 +439,17 @@ fn fallback_session() -> &'static str {
 fn run_test(provider: &Provider) -> TestResult {
     // Route through the sonnet slot, the one Claude Code uses most, so the test
     // exercises the mapping the user actually configured.
-    let (model, tokens) = if provider.api_format == ApiFormat::OpenaiResponses {
+    let (model, tokens) = if matches!(
+        provider.api_format,
+        ApiFormat::OpenaiResponses | ApiFormat::Gemini
+    ) {
         (
             config::strip_context_marker(&provider.models.default).to_string(),
-            32,
+            if provider.api_format == ApiFormat::Gemini {
+                128
+            } else {
+                32
+            },
         )
     } else {
         (
@@ -411,30 +463,44 @@ fn run_test(provider: &Provider) -> TestResult {
             latency_ms: 0,
             http_status: None,
             model: None,
-            message: "请填写 Codex 使用的模型 ID".into(),
+            message: "请填写默认模型 ID".into(),
         };
     }
     let outbound = text_request(provider, &model, "hi", tokens);
 
     let started = std::time::Instant::now();
-    let response = match upstream::send(provider, &outbound, Some(fallback_session()), None) {
-        Ok(response) => response,
-        Err(message) => {
-            return TestResult {
-                ok: false,
-                latency_ms: started.elapsed().as_millis() as u64,
-                http_status: None,
-                model: None,
-                message: format!("连不上：{}", summarize_transport_error(&message)),
-            };
-        }
-    };
+    let response =
+        match send_text_request(provider, &model, &outbound, Some(fallback_session()), None) {
+            Ok(response) => response,
+            Err(message) => {
+                return TestResult {
+                    ok: false,
+                    latency_ms: started.elapsed().as_millis() as u64,
+                    http_status: None,
+                    model: None,
+                    message: format!("连不上：{}", summarize_transport_error(&message)),
+                };
+            }
+        };
 
     let status = response.status;
     let payload = upstream::read_all(response.body).unwrap_or_default();
     let latency_ms = started.elapsed().as_millis() as u64;
     if status.is_success() {
         let reply = serde_json::from_slice::<Value>(&payload).ok();
+        if provider.api_format == ApiFormat::Gemini
+            && !reply
+                .as_ref()
+                .is_some_and(|body| body["candidates"].is_array())
+        {
+            return TestResult {
+                ok: false,
+                latency_ms,
+                http_status: Some(status.as_u16()),
+                model: Some(model),
+                message: "该端点未返回 Gemini 格式".into(),
+            };
+        }
         if provider.api_format == ApiFormat::OpenaiResponses
             && !reply.as_ref().is_some_and(|body| body["output"].is_array())
         {
@@ -449,6 +515,7 @@ fn run_test(provider: &Provider) -> TestResult {
         let answered = reply.and_then(|value| {
             value
                 .get("model")
+                .or_else(|| value.get("modelVersion"))
                 .and_then(Value::as_str)
                 .map(str::to_string)
         });
@@ -514,6 +581,22 @@ struct Request {
     body: Vec<u8>,
 }
 
+enum Endpoint<'a> {
+    Messages,
+    Responses,
+    Gemini { model: &'a str, operation: &'a str },
+}
+
+impl Endpoint<'_> {
+    fn format(&self) -> ApiFormat {
+        match self {
+            Self::Messages => ApiFormat::Anthropic,
+            Self::Responses => ApiFormat::OpenaiResponses,
+            Self::Gemini { .. } => ApiFormat::Gemini,
+        }
+    }
+}
+
 fn handle_connection(mut stream: TcpStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
@@ -529,12 +612,12 @@ fn handle_connection(mut stream: TcpStream) {
     let route = (request.method == "POST")
         .then(|| route_of(&request.path))
         .flatten();
-    let Some((provider_id, responses)) = route else {
+    let Some((provider_id, endpoint)) = route else {
         respond_error(
             &mut stream,
             404,
             "not_found_error",
-            "本地网关提供 /v1/messages 和 /v1/responses",
+            "本地网关没有该模型接口",
         );
         return;
     };
@@ -574,7 +657,7 @@ fn handle_connection(mut stream: TcpStream) {
         return;
     }
 
-    if responses != (provider.api_format == ApiFormat::OpenaiResponses) {
+    if !matching_format(provider.api_format, endpoint.format()) {
         respond_error(
             &mut stream,
             400,
@@ -583,10 +666,12 @@ fn handle_connection(mut stream: TcpStream) {
         );
         return;
     }
-    if responses {
-        forward_responses(&mut stream, &provider, body);
-    } else {
-        forward(&mut stream, &provider, body);
+    match endpoint {
+        Endpoint::Gemini { model, operation } => {
+            forward_gemini(&mut stream, &provider, &body, model, operation);
+        }
+        Endpoint::Responses => forward_responses(&mut stream, &provider, body),
+        Endpoint::Messages => forward(&mut stream, &provider, body),
     }
 }
 
@@ -597,7 +682,7 @@ fn handle_connection(mut stream: TcpStream) {
 /// choice to the current selection, `None` is not our endpoint. The id rides in
 /// the path because that is the only part of the request Claude Code lets us
 /// preset: it appends `/v1/messages` to whatever ANTHROPIC_BASE_URL holds.
-fn route_of(path: &str) -> Option<(Option<&str>, bool)> {
+fn route_of(path: &str) -> Option<(Option<&str>, Endpoint<'_>)> {
     let path = path.split('?').next().unwrap_or(path);
     let (provider, rest) = match path.strip_prefix(PIN_PREFIX) {
         Some(tail) => {
@@ -612,8 +697,20 @@ fn route_of(path: &str) -> Option<(Option<&str>, bool)> {
     // Claude Code produces the doubled form when the base URL already ends in
     // `/v1`, which users paste often enough to be worth accepting.
     match rest {
-        "v1/messages" | "messages" | "v1/v1/messages" => Some((provider, false)),
-        "v1/responses" | "responses" if provider.is_some() => Some((provider, true)),
+        "v1/messages" | "messages" | "v1/v1/messages" => Some((provider, Endpoint::Messages)),
+        "v1/responses" | "responses" if provider.is_some() => Some((provider, Endpoint::Responses)),
+        _ if provider.is_some() => {
+            let (model, path) = rest.strip_prefix("m/")?.split_once('/')?;
+            let request = path
+                .strip_prefix("v1beta/models/")
+                .or_else(|| path.strip_prefix("v1/models/"))?;
+            let (_, operation) = request.rsplit_once(':')?;
+            matches!(
+                operation,
+                "generateContent" | "streamGenerateContent" | "countTokens"
+            )
+            .then_some((provider, Endpoint::Gemini { model, operation }))
+        }
         _ => None,
     }
 }
@@ -677,7 +774,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Option<Request>, String> {
             "transfer-encoding" => return Err("不支持 Transfer-Encoding".into()),
             // Claude Code sends x-api-key; a user who set ANTHROPIC_AUTH_TOKEN
             // instead gets a Bearer header. Accept either.
-            "x-api-key" => credential = Some(value.to_string()),
+            "x-api-key" | "x-goog-api-key" => credential = Some(value.to_string()),
             "authorization" => {
                 let token = value
                     .strip_prefix("Bearer ")
@@ -727,6 +824,23 @@ fn read_request(stream: &mut TcpStream) -> Result<Option<Request>, String> {
     }))
 }
 
+fn forward_gemini(
+    stream: &mut TcpStream,
+    provider: &Provider,
+    body: &Value,
+    model: &str,
+    operation: &str,
+) {
+    let response = match upstream::send_gemini(provider, model, operation, body, None) {
+        Ok(response) => response,
+        Err(_) => {
+            respond_error(stream, 502, "api_error", "上游 Gemini 请求失败");
+            return;
+        }
+    };
+    forward_native_response(stream, provider, response);
+}
+
 fn forward_responses(stream: &mut TcpStream, provider: &Provider, body: Value) {
     let response = match upstream::send(provider, &body, Some(fallback_session()), None) {
         Ok(response) => response,
@@ -735,6 +849,14 @@ fn forward_responses(stream: &mut TcpStream, provider: &Provider, body: Value) {
             return;
         }
     };
+    forward_native_response(stream, provider, response);
+}
+
+fn forward_native_response(
+    stream: &mut TcpStream,
+    provider: &Provider,
+    response: upstream::Response,
+) {
     let status = response.status;
     if !status.is_success() {
         let payload = upstream::read_all(response.body).unwrap_or_default();

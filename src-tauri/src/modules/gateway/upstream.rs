@@ -61,7 +61,12 @@ fn request_headers(provider: &Provider, session: Option<&str>) -> HeaderMap {
     };
     match provider.auth_style {
         AuthStyle::ApiKey => {
-            headers.insert(HeaderName::from_static("x-api-key"), value);
+            let name = if provider.api_format == ApiFormat::Gemini {
+                "x-goog-api-key"
+            } else {
+                "x-api-key"
+            };
+            headers.insert(HeaderName::from_static(name), value);
         }
         AuthStyle::Bearer => {
             if let Ok(bearer) = HeaderValue::from_str(&format!("Bearer {key}")) {
@@ -91,9 +96,31 @@ pub fn send(
     session: Option<&str>,
     timeout: Option<Duration>,
 ) -> Result<Response, String> {
-    let url = provider.messages_url();
+    send_to(provider, &provider.messages_url(), body, session, timeout)
+}
+
+pub(super) fn send_gemini(
+    provider: &Provider,
+    model: &str,
+    operation: &str,
+    body: &Value,
+    timeout: Option<Duration>,
+) -> Result<Response, String> {
+    let url = provider
+        .gemini_url(model, operation)
+        .ok_or("无效 Gemini Base URL 或模型 ID")?;
+    send_to(provider, url.as_str(), body, None, timeout)
+}
+
+fn send_to(
+    provider: &Provider,
+    url: &str,
+    body: &Value,
+    session: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<Response, String> {
     let headers = request_headers(provider, session);
-    let request = client().post(&url).headers(headers).json(body);
+    let request = client().post(url).headers(headers).json(body);
     let request = match timeout {
         Some(timeout) => request.timeout(timeout),
         None => request,

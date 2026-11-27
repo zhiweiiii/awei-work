@@ -16,7 +16,7 @@
 
 手机不能把桌面的百余列网格缩成可读字号，也不能改变共享 PTY 宽度破坏桌面 TUI。因此页面显示可折行的对话，内部无头 xterm 按桌面实际网格解析 ANSI，但不创建渲染器。
 
-Claude/Codex 对话来自本机 JSONL，opencode 来自只读 SQLite；Rust 归一成有序用户/助手轮次与 `parts`，保留正文、思考、工具调用及结果顺序。工具按调用 ID 关联，预览最多 40 行/4096 字节，明确标记省略。屏幕解析只补实时权限选项、运行状态，以及没有 transcript 时的降级输出。
+Claude、Codex 和 Anti 对话来自本机 JSONL，opencode 来自只读 SQLite。Rust 归一成有序用户/助手轮次与 `parts`，按各 CLI 记录保留正文及工具结果顺序。Anti 从对应终端的 CLI 日志取得会话 UUID，再核对本地工作区索引。工具预览最多 40 行/4096 字节，明确标记省略。屏幕解析补实时权限选项、运行状态，以及没有 transcript 时的降级输出。
 
 记录绑定使用明确恢复 UUID 或启动后唯一候选，并逐文件核对 cwd；不随其他会话修改时间换源。700ms 轮询，文件未变不重新解析；每种 JSONL 读取器最多缓存 8 文件/600 原始步骤，文本及部件还有独立预算。无法确认来源或格式不支持时回退屏幕，不拼接半份记录。
 
@@ -32,7 +32,7 @@ Claude/Codex 对话来自本机 JSONL，opencode 来自只读 SQLite；Rust 归�
 
 发送按钮直接提交，不是换行；输入框回车编辑多行，Ctrl/Cmd+Enter 提交，IME 确认不误发送。空输入发送真实 CR，可确认默认选项。控制键保留 Ctrl+C/Ctrl+D/Esc/Tab/Shift+Tab/上下/回车。
 
-非空输入通过 `{submit:{id,text,leafId}}`，服务端核对附着目标与 64 KB 上限。Codex 使用 bracketed paste 边界后 CR；其他程序文字后 CR。`writeAck` 只表示 PTY 写入与 flush 成功，不代表 agent 执行成功。
+非空输入通过 `{submit:{id,text,leafId}}`，服务端核对附着目标与 64 KB 上限。Codex 和 Anti 使用 bracketed paste 边界后 CR；其他程序文字后 CR。`writeAck` 表示 PTY 写入与 flush 成功。
 
 等待确认期间仍可编辑；成功仅清空同终端且未改变的草稿。失败、断线或 15 秒超时保留内容，不自动重发；同一内容重试复用编号，同一 PTY 缓存最近 128 个结果。跨重启、刷新或缓存淘汰不保证恰好一次，未知结果先检查终端。
 

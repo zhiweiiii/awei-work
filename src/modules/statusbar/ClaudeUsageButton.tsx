@@ -4,14 +4,21 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { errorToast } from "@/lib/errorToast";
 import { Refresh01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  type CSSProperties,
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -56,6 +63,23 @@ type AgyUsage = {
   error: string | null;
 };
 
+type QuotaHint = { percent: number | null; reset: string | null };
+type UsageSummary = {
+  letter: "C" | "O" | "A";
+  agent: string;
+  short: QuotaHint;
+  week: QuotaHint;
+  error: string | null;
+};
+
+const QUOTA_WINDOWS = ["short", "week"] as const;
+const QUOTA_LABELS = { short: "5 小时", week: "本周" } as const;
+const QUOTA_GLYPHS = {
+  C: "M71 19a25 25 0 1 0 0 38",
+  O: "M48 13a25 25 0 1 1 0 50a25 25 0 1 1 0-50",
+  A: "M23 63 48 13 73 63M32 46h32",
+} as const;
+
 const WARN_AT = 75;
 const DANGER_AT = 90;
 const REFRESH_INTERVAL = 5 * 60 * 1000;
@@ -94,6 +118,14 @@ function barOf(percent: number): string {
   return "bg-emerald-500";
 }
 
+function percentLabel(percent: number | null) {
+  return percent === null ? "--" : `${percent}%`;
+}
+
+function clampPercent(percent: number) {
+  return Math.max(0, Math.min(100, percent));
+}
+
 function ageLabel(fetchedAt: number): string {
   const seconds = Math.max(0, Math.floor(Date.now() / 1000) - fetchedAt);
   if (seconds < 60) return "刚刚";
@@ -118,16 +150,24 @@ function codexWindowTitle(window: CodexUsageWindow, fallback: string): string {
   return fallback;
 }
 
-function resetHint(day: number, hour: number, minute: number): string {
+function resetHint(day: number | null, hour: number, minute: number): string {
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(day)}号${pad(hour)}:${pad(minute)}`;
+  const clock = `${pad(hour)}:${pad(minute)}`;
+  return day === null ? clock : `${pad(day)}号${clock}`;
 }
 
-function codexResetHint(resetsAt: number | null): string | null {
+function epochResetHint(
+  resetsAt: number | null,
+  includeDay = true,
+): string | null {
   if (resetsAt === null || !Number.isFinite(resetsAt)) return null;
   const date = new Date(resetsAt * 1000);
   if (!Number.isFinite(date.getTime())) return null;
-  return resetHint(date.getDate(), date.getHours(), date.getMinutes());
+  return resetHint(
+    includeDay ? date.getDate() : null,
+    date.getHours(),
+    date.getMinutes(),
+  );
 }
 
 function agyResetSeconds(value: string | null | undefined): number | null {
@@ -159,6 +199,7 @@ function preserveOnError<T extends { error: string | null }>(
 function claudeResetHint(
   value: string | null,
   fetchedAt: number,
+  includeDay = true,
 ): string | null {
   if (!value) return null;
   const match = value.match(
@@ -172,6 +213,7 @@ function claudeResetHint(
   const hour24 = period
     ? (hour % 12) + (period.toLowerCase() === "pm" ? 12 : 0)
     : hour;
+  if (!includeDay) return resetHint(null, hour24, minute);
   if (day)
     return Number(day) >= 1 && Number(day) <= 31
       ? resetHint(Number(day), hour24, minute)
@@ -206,6 +248,7 @@ function claudeResetHint(
 
 export function ClaudeUsageButton() {
   const [open, setOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [claudeUsage, setClaudeUsage] = useState<ClaudeUsage | null>(null);
   const [codexUsage, setCodexUsage] = useState<CodexUsage | null>(null);
   const [agyUsage, setAgyUsage] = useState<AgyUsage | null>(null);
@@ -245,7 +288,7 @@ export function ClaudeUsageButton() {
             };
       setClaudeUsage((previous) => preserveOnError(previous, claudeResult));
       setCodexUsage((previous) => preserveOnError(previous, codexResult));
-      const agyResult: AgyUsage =
+      const agyResult =
         agy.status === "fulfilled"
           ? agy.value
           : { groups: [], fetchedAt, error: String(agy.reason) };
@@ -297,10 +340,18 @@ export function ClaudeUsageButton() {
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next) void load(false);
+    if (next) {
+      setPreviewOpen(false);
+      void load(false);
+    }
   };
 
   const session = claudeUsage?.session ?? null;
+  const claudeShortReset = claudeResetHint(
+    session?.resets ?? null,
+    claudeUsage?.fetchedAt ?? Number.NaN,
+    false,
+  );
   const primaryWeek =
     claudeUsage?.weeks.find(
       (week) => week.label.toLowerCase() === "all models",
@@ -316,60 +367,74 @@ export function ClaudeUsageButton() {
   );
   const agyFiveHour = maxAgyWindow(agyUsage?.groups, "fiveHour");
   const agyWeek = maxAgyWindow(agyUsage?.groups, "week");
-  const summaryTitle = [
-    "上半为 5 小时用量，下半为周用量。点击查看详情。",
-    claudeUsage?.error ? `Claude Code 更新失败：${claudeUsage.error}` : null,
-    codexUsage?.error ? `Codex 更新失败：${codexUsage.error}` : null,
-    agyUsage?.error ? `Antigravity CLI 更新失败：${agyUsage.error}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const summaries: UsageSummary[] = [
+    {
+      letter: "C",
+      agent: "Claude Code",
+      short: {
+        percent: session?.percent ?? null,
+        reset: claudeShortReset,
+      },
+      week: {
+        percent: primaryWeek?.percent ?? null,
+        reset: claudeResetHint(
+          primaryWeek?.resets ?? null,
+          claudeUsage?.fetchedAt ?? Number.NaN,
+        ),
+      },
+      error: claudeUsage?.error ?? null,
+    },
+    {
+      letter: "O",
+      agent: "Codex",
+      short: {
+        percent: codexFiveHour?.usedPercent ?? null,
+        reset: epochResetHint(codexFiveHour?.resetsAt ?? null, false),
+      },
+      week: {
+        percent: codexWeek?.usedPercent ?? null,
+        reset: epochResetHint(codexWeek?.resetsAt ?? null),
+      },
+      error: codexUsage?.error ?? null,
+    },
+    {
+      letter: "A",
+      agent: "Antigravity CLI",
+      short: {
+        percent: agyFiveHour?.percent ?? null,
+        reset: epochResetHint(agyResetSeconds(agyFiveHour?.resetsAt), false),
+      },
+      week: {
+        percent: agyWeek?.percent ?? null,
+        reset: epochResetHint(agyResetSeconds(agyWeek?.resetsAt)),
+      },
+      error: agyUsage?.error ?? null,
+    },
+  ];
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 rounded-md px-0.5"
-          title={summaryTitle}
-          aria-label="Claude Code、Codex 与 Antigravity CLI 用量"
-        >
-          <UsageBadge
-            letter="C"
-            agent="Claude Code"
-            shortPercent={session?.percent ?? null}
-            shortReset={claudeResetHint(
-              session?.resets ?? null,
-              claudeUsage?.fetchedAt ?? Number.NaN,
-            )}
-            weekPercent={primaryWeek?.percent ?? null}
-            weekReset={claudeResetHint(
-              primaryWeek?.resets ?? null,
-              claudeUsage?.fetchedAt ?? Number.NaN,
-            )}
-            error={Boolean(claudeUsage?.error)}
-          />
-          <UsageBadge
-            letter="O"
-            agent="Codex"
-            shortPercent={codexFiveHour?.usedPercent ?? null}
-            shortReset={codexResetHint(codexFiveHour?.resetsAt ?? null)}
-            weekPercent={codexWeek?.usedPercent ?? null}
-            weekReset={codexResetHint(codexWeek?.resetsAt ?? null)}
-            error={Boolean(codexUsage?.error)}
-          />
-          <UsageBadge
-            letter="A"
-            agent="Antigravity CLI（各组最高用量）"
-            shortPercent={agyFiveHour?.percent ?? null}
-            shortReset={codexResetHint(agyResetSeconds(agyFiveHour?.resetsAt))}
-            weekPercent={agyWeek?.percent ?? null}
-            weekReset={codexResetHint(agyResetSeconds(agyWeek?.resetsAt))}
-            error={Boolean(agyUsage?.error)}
-          />
-        </Button>
-      </PopoverTrigger>
+      <Tooltip
+        open={previewOpen && !open}
+        onOpenChange={setPreviewOpen}
+        delayDuration={160}
+      >
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 rounded-md px-0.5"
+              aria-label="Claude Code、Codex 与 Antigravity CLI 用量"
+            >
+              {summaries.map((summary) => (
+                <UsageBadge key={summary.letter} summary={summary} />
+              ))}
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <UsagePreview summaries={summaries} />
+      </Tooltip>
       <PopoverContent
         align="end"
         side="top"
@@ -402,7 +467,12 @@ export function ClaudeUsageButton() {
           ) : null}
 
           <UsageSection title="Claude Code">
-            {session ? <WindowRow title="5 小时窗口" window={session} /> : null}
+            {session ? (
+              <WindowRow
+                title="5 小时窗口"
+                window={{ ...session, resets: claudeShortReset }}
+              />
+            ) : null}
             {claudeUsage?.weeks.map((week) => (
               <WindowRow
                 key={week.label}
@@ -471,10 +541,10 @@ export function ClaudeUsageButton() {
               <div key={group.name} className="flex flex-col gap-1.5">
                 <span className="text-[10.5px] font-medium">{group.name}</span>
                 {group.fiveHour && (
-                  <AgyWindowRow label="5 小时窗口" window={group.fiveHour} />
+                  <AgyWindowRow period="short" window={group.fiveHour} />
                 )}
                 {group.week && (
-                  <AgyWindowRow label="周窗口" window={group.week} />
+                  <AgyWindowRow period="week" window={group.week} />
                 )}
               </div>
             ))}
@@ -495,55 +565,161 @@ export function ClaudeUsageButton() {
   );
 }
 
-function UsageBadge({
-  letter,
-  agent,
-  shortPercent,
-  shortReset,
-  weekPercent,
-  weekReset,
-  error,
-}: {
-  letter: string;
-  agent: string;
-  shortPercent: number | null;
-  shortReset: string | null;
-  weekPercent: number | null;
-  weekReset: string | null;
-  error: boolean;
-}) {
-  const percentLabel = (percent: number | null) =>
-    percent === null ? "--" : `${percent}%`;
-  const title = [
-    `${agent}${error ? " · 更新失败" : ""}`,
-    `5 小时 ${percentLabel(shortPercent)}（${shortReset ?? "--"} 重置）`,
-    `周 ${percentLabel(weekPercent)}（${weekReset ?? "--"} 重置）`,
-  ].join("\n");
+function UsageBadge({ summary }: { summary: UsageSummary }) {
+  const { letter, error } = summary;
+  const stacked = letter === "C";
   return (
     <span
       aria-hidden="true"
       className={`relative grid size-6 shrink-0 place-items-center overflow-hidden rounded-md border ${error ? "border-destructive/75" : "border-border"}`}
-      title={title}
     >
-      <span className="absolute inset-0 grid grid-rows-2 gap-px bg-border/80">
-        {[shortPercent, weekPercent].map((percent, index) => (
-          <span
-            key={index === 0 ? "5h" : "week"}
-            className="block bg-background"
-          >
-            {percent === null ? null : (
-              <span
-                className={`block h-full opacity-45 dark:opacity-65 ${barOf(percent)}`}
-                style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
-              />
-            )}
-          </span>
-        ))}
+      <span
+        className={`absolute inset-0 grid gap-px bg-border/80 ${stacked ? "grid-rows-2" : "grid-cols-2"}`}
+      >
+        {QUOTA_WINDOWS.map((period) => {
+          const { percent } = summary[period];
+          return (
+            <span key={period} className="flex items-end bg-background">
+              {percent === null ? null : (
+                <span
+                  className={`block opacity-45 dark:opacity-65 ${barOf(percent)} ${stacked ? "h-full" : "w-full"}`}
+                  style={{
+                    [stacked ? "width" : "height"]: `${clampPercent(percent)}%`,
+                  }}
+                />
+              )}
+            </span>
+          );
+        })}
       </span>
       <span className="relative text-xs font-semibold text-foreground">
         {letter}
       </span>
     </span>
+  );
+}
+
+function UsagePreview({ summaries }: { summaries: UsageSummary[] }) {
+  const label = summaries
+    .map((summary) => {
+      const windows = QUOTA_WINDOWS.map((period) => {
+        const { percent, reset } = summary[period];
+        return `${QUOTA_LABELS[period]} ${percentLabel(percent)}${reset ? `，${reset} 重置` : ""}`;
+      });
+      return [summary.agent, summary.error ? "更新失败" : null, ...windows]
+        .filter(Boolean)
+        .join("，");
+    })
+    .join("。");
+  return (
+    <TooltipContent
+      aria-label={label}
+      align="end"
+      side="top"
+      sideOffset={8}
+      collisionPadding={8}
+      className="block w-[30rem] max-w-[calc(100vw-1rem)] rounded-2xl border border-border/80 bg-popover p-2 text-popover-foreground shadow-xl motion-reduce:animate-none"
+    >
+      <div className="grid grid-cols-3 gap-1.5">
+        {summaries.map((summary) => (
+          <section
+            key={summary.letter}
+            className="min-w-0 rounded-xl bg-muted/50 p-2"
+          >
+            <p className="truncate text-center text-xs font-semibold">
+              {summary.agent}
+            </p>
+            <QuotaGlyph summary={summary} />
+            <div className="flex flex-col gap-1.5">
+              {QUOTA_WINDOWS.map((period) => {
+                const { percent, reset } = summary[period];
+                return (
+                  <div
+                    key={period}
+                    className="border-t border-border/60 pt-1.5"
+                  >
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="text-xs text-muted-foreground">
+                        {QUOTA_LABELS[period]}
+                      </span>
+                      <span
+                        className={`font-semibold tabular-nums ${toneOf(percent)}`}
+                      >
+                        {percentLabel(percent)}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                      {reset ? `${reset} 重置` : "--"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {summary.error || summary.letter === "A" ? (
+              <p
+                className={`mt-1.5 text-[11px] ${summary.error ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                {summary.error ? "更新失败" : "各组最高用量"}
+              </p>
+            ) : null}
+          </section>
+        ))}
+      </div>
+    </TooltipContent>
+  );
+}
+
+function QuotaGlyph({ summary }: { summary: UsageSummary }) {
+  const maskId = useId();
+  const stacked = summary.letter === "C";
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 96 76"
+      className="mx-auto my-1 block h-16 w-full max-w-24"
+    >
+      <mask
+        id={maskId}
+        maskUnits="userSpaceOnUse"
+        x="0"
+        y="0"
+        width="96"
+        height="76"
+      >
+        <path
+          d={QUOTA_GLYPHS[summary.letter]}
+          fill="none"
+          stroke="white"
+          strokeWidth="12"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </mask>
+      <g mask={`url(#${maskId})`}>
+        {QUOTA_WINDOWS.map((period) => {
+          const { percent } = summary[period];
+          const rect = stacked
+            ? { x: 16, y: period === "short" ? 6 : 39, width: 64, height: 31 }
+            : { x: period === "short" ? 16 : 49, y: 6, width: 31, height: 64 };
+          return (
+            <g key={period}>
+              <rect {...rect} className="fill-foreground/15" />
+              {percent === null ? null : (
+                <rect
+                  {...rect}
+                  style={
+                    {
+                      "--quota-scale": clampPercent(percent) / 100,
+                    } as CSSProperties
+                  }
+                  className={`fill-current [transform-box:fill-box] motion-safe:transition-transform motion-safe:duration-500 ${toneOf(percent)} ${stacked ? "origin-left scale-x-[var(--quota-scale)] motion-safe:starting:scale-x-0" : "origin-bottom scale-y-[var(--quota-scale)] motion-safe:starting:scale-y-0"}`}
+                />
+              )}
+            </g>
+          );
+        })}
+      </g>
+    </svg>
   );
 }
 
@@ -592,19 +768,24 @@ function WindowRow({ title, window }: { title: string; window: UsageWindow }) {
 }
 
 function AgyWindowRow({
-  label,
+  period,
   window,
 }: {
-  label: string;
+  period: (typeof QUOTA_WINDOWS)[number];
   window: AgyQuotaWindow;
 }) {
+  const label = period === "short" ? "5 小时窗口" : "周窗口";
+  const reset = agyResetSeconds(window.resetsAt);
   return (
     <WindowRow
       title={label}
       window={{
         label,
         percent: window.percent,
-        resets: codexResetLabel(agyResetSeconds(window.resetsAt)),
+        resets:
+          period === "short"
+            ? epochResetHint(reset, false)
+            : codexResetLabel(reset),
       }}
     />
   );
@@ -618,7 +799,10 @@ function CodexWindowRow({
   window: CodexUsageWindow;
 }) {
   const percent = window.usedPercent;
-  const reset = codexResetLabel(window.resetsAt);
+  const reset =
+    window.windowDurationMins === 300
+      ? epochResetHint(window.resetsAt, false)
+      : codexResetLabel(window.resetsAt);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2">

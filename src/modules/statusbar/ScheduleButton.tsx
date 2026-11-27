@@ -23,7 +23,7 @@ type ScheduledJob = {
   fire_at: number;
   created_at: number;
   daily_time: string | null;
-  target: "terminal" | "codex" | "claude" | "pet";
+  target: "terminal" | "codex" | "claude" | "agy" | "pet";
   running: boolean;
   finished: boolean;
   paused: boolean;
@@ -191,6 +191,7 @@ export function ScheduleButton({ leafId }: Props) {
             <option value="terminal">终端</option>
             <option value="codex">Codex（后台）</option>
             <option value="claude">Claude Code（后台）</option>
+            <option value="agy">Antigravity CLI（后台）</option>
             <option value="pet">宠物提示</option>
           </select>
           <Label htmlFor="schedule-mode">执行时间</Label>
@@ -290,7 +291,7 @@ export function ScheduleButton({ leafId }: Props) {
                 : "到点独立启动后台程序，不占用终端、不需工作目录。使用本机 CLI 的登录和配置，每次新建对话。"}
             任务自动保存，重启恢复。执行时需保持 awei-work
             运行；过期待执行任务补发一次，中断请求不自动重发。
-            {target === "codex" || target === "claude"
+            {target !== "terminal" && target !== "pet"
               ? "后台最多并行 4 个，单次限时 30 分钟。"
               : ""}
           </p>
@@ -339,7 +340,9 @@ export function ScheduleButton({ leafId }: Props) {
                           ? "宠物提示"
                           : job.target === "codex"
                             ? "Codex 后台"
-                            : "Claude Code 后台"}{" "}
+                            : job.target === "agy"
+                              ? "Anti 后台"
+                              : "Claude Code 后台"}{" "}
                       · {new Date(job.fire_at).toLocaleString()}
                     </span>
                     {job.last_result ? (

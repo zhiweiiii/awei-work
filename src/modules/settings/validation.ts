@@ -178,7 +178,13 @@ export function normalizePreference(
         : {};
     case "claudeGateway": {
       if (!record(value) || !Array.isArray(value.providers))
-        return { providers: [], current: null, global: null, codexGlobal: null };
+        return {
+          providers: [],
+          current: null,
+          global: null,
+          codexGlobal: null,
+          agyGlobal: null,
+        };
       const seen = new Set<string>();
       const providers = value.providers.filter((provider) => {
         if (
@@ -191,7 +197,8 @@ export function normalizePreference(
           ) ||
           (provider.apiFormat !== "anthropic" &&
             provider.apiFormat !== "openai_chat" &&
-            provider.apiFormat !== "openai_responses") ||
+            provider.apiFormat !== "openai_responses" &&
+            provider.apiFormat !== "gemini") ||
           (provider.authStyle !== "bearer" &&
             provider.authStyle !== "api_key") ||
           !record(provider.models) ||
@@ -226,18 +233,27 @@ export function normalizePreference(
             : null,
         // A relay that was deleted while it was the global one must not be
         // resurrected by name: the next shell would then fail every request.
-        global:
-          providers.some((provider) =>
-            provider.id === value.global && provider.apiFormat !== "openai_responses"
-          )
-            ? value.global
-            : null,
-        codexGlobal:
-          providers.some((provider) =>
-            provider.id === value.codexGlobal && provider.apiFormat === "openai_responses"
-          )
-            ? value.codexGlobal
-            : null,
+        global: providers.some(
+          (provider) =>
+            provider.id === value.global &&
+            (provider.apiFormat === "anthropic" ||
+              provider.apiFormat === "openai_chat"),
+        )
+          ? value.global
+          : null,
+        codexGlobal: providers.some(
+          (provider) =>
+            provider.id === value.codexGlobal &&
+            provider.apiFormat === "openai_responses",
+        )
+          ? value.codexGlobal
+          : null,
+        agyGlobal: providers.some(
+          (provider) =>
+            provider.id === value.agyGlobal && provider.apiFormat === "gemini",
+        )
+          ? value.agyGlobal
+          : null,
       };
     }
     default:

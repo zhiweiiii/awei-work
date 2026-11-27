@@ -1139,19 +1139,19 @@ fn handle_ws(app: tauri::AppHandle, mut conn: WsConn, token: String) {
                                 );
                             }
                         }
-                        let codex_submit = cmd == b'2'
-                            && session.web_agent().as_deref() == Some("codex")
+                        let bracketed_submit = cmd == b'2'
+                            && matches!(session.web_agent().as_deref(), Some("codex" | "agy"))
                             && !data.windows(6).any(|part| part == b"\x1b[201~");
                         let result = (|| -> std::io::Result<()> {
                             let mut w = session
                                 .writer
                                 .lock()
                                 .map_err(|_| std::io::Error::other("terminal input unavailable"))?;
-                            if codex_submit {
+                            if bracketed_submit {
                                 w.write_all(b"\x1b[200~")?;
                             }
                             w.write_all(data)?;
-                            if codex_submit {
+                            if bracketed_submit {
                                 w.write_all(b"\x1b[201~")?;
                             }
                             if cmd == b'2' {

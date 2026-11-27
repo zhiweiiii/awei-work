@@ -294,11 +294,18 @@ export function SshFiles({
       </div>
       {(progress || message) && (
         <div
-          className="flex items-center gap-3 border-t border-border px-3 py-2"
+          className="flex items-center gap-3 border-t border-border px-3 py-2 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-150"
           aria-live="polite"
         >
           <div className="min-w-0 flex-1">
-            <p className="truncate">
+            <p
+              key={busy ? "ongoing" : "result"}
+              className={
+                busy || !message.startsWith("已完成")
+                  ? "truncate"
+                  : "truncate text-emerald-700 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 dark:text-emerald-400"
+              }
+            >
               {busy
                 ? `${cancelling ? "正在取消" : "传输中"}：${progress?.file ?? ""}`
                 : message}

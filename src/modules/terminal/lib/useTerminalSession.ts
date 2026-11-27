@@ -27,7 +27,11 @@ import {
 } from "../block/lib/blockDecorations";
 import type { BlockMode } from "../block/lib/modeMachine";
 import { DormantRing } from "./dormantRing";
-import { type GatewayRoutes, resolvedGatewayRoutes, syncGatewayConfig } from "./gatewayRoutes";
+import {
+  type GatewayRoutes,
+  resolvedGatewayRoutes,
+  syncGatewayConfig,
+} from "./gatewayRoutes";
 import {
   createShellIntegrationState,
   registerCwdHandler,
@@ -941,8 +945,12 @@ async function openPtyForSession(
   const startCols = s.cols > 0 ? s.cols : 80;
   const startRows = s.rows > 0 ? s.rows : 24;
   const config = usePreferencesStore.getState().claudeGateway;
-  const routes = s.workspace.kind === "local" ? resolvedGatewayRoutes(config, s.gatewayRoutes) : undefined;
-  if (routes?.claude || routes?.codex) await syncGatewayConfig(config);
+  const routes =
+    s.workspace.kind === "local"
+      ? resolvedGatewayRoutes(config, s.gatewayRoutes)
+      : undefined;
+  if (routes?.claude || routes?.codex || routes?.agy)
+    await syncGatewayConfig(config);
   const pty = await openPty(
     startCols,
     startRows,

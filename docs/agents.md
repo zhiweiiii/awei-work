@@ -1,10 +1,10 @@
-# Claude Code / Codex 配套功能
+# Agent 配套功能
 
 awei-work 使用用户已安装并登录的 CLI，模型权限和费用由对应服务决定。会话历史读本机记录，用量问 CLI 接口；两者不是同一数据。
 
 ## 会话历史与恢复
 
-安装并登录 Antigravity CLI 后，可以从顶部「会话历史」新建 `agy` 对话，或在空闲终端用 `agy -c` 继续当前目录最近的对话。其他历史可在 CLI 里用 `/resume` 选择。应用兼容 Windows 默认安装目录；PowerShell 和 Git Bash 识别 `agy` 运行与退出。应用自动恢复继续使用已确认身份的 Claude Code 和 Codex 会话。
+安装并登录 Antigravity CLI 后，可以从顶部「会话历史」新建 `agy` 对话、继续当前目录最近对话，或从列表恢复指定会话。应用兼容 Windows 默认安装目录；PowerShell 和 Git Bash 识别 `agy` 运行与退出，并通过每个终端的 CLI 日志绑定实际会话 UUID。应用只读 Antigravity 的会话索引，核对工作区后按 `agy --conversation <UUID>` 恢复。已绑定的 Anti 会话也参与按最近用户消息时间排序和重启恢复。
 
 顶部菜单提供新对话 Claude Code/Codex/dsh，并把当前项目目录的历史合并，按最后活动时间排序。点 Claude/Codex 记录通过正常提交入口执行 `claude --resume <UUID>` 或 `codex resume <UUID>`，不是只把文字插入输入栏。dsh 没有终端界面，菜单里的"新对话 dsh"和 dsh 记录都打开 dsh 的网页界面：dsh 已在跑就直接用，没跑就启动 `dsh web --no-open`（未全局安装时回退 `npx @deepseek-ai/dsh`），读完它打印的带令牌 URL 后开一个预览标签页。令牌只在那行输出里，所以打开的是那行 URL，不是裸端口。服务端由本进程持有，退出时连同子进程一起结束；端口已被占用时打开该端口首页而不是试图再绑一次。
 
@@ -20,7 +20,7 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 启动补读消息时间时，沿用增量解析缓存，在每个确切文件约 2 秒预算内连续读取到末尾，避免大日志超过单次 32 MiB/200ms 额度后被当成无消息时间。未读完、文件损坏或没有用户消息仍保持未知，不拿中途的旧时间参与排序；实时界面读取保留原有单次额度。
 
-补读消息时间和验证恢复命令时，在应用日志记录 `agent restore`、agent 类型、会话 UUID 和读取的时间，不记录消息正文。已有会话 ID 但缺少消息时间的项目会在升级后按该确切记录重新补读，无需清除项目或重新创建会话。当前仅扫描未压缩的 `.jsonl`；已归档的 `.jsonl.zst` 不参与恢复。
+补读消息时间和验证恢复命令时，在应用日志记录 `agent restore`、agent 类型、会话 UUID 和读取的时间，不记录消息正文。已有会话 ID 但缺少消息时间的项目会在升级后按该确切记录重新补读，无需清除项目或重新创建会话。Claude 和 Codex 扫描未压缩的 `.jsonl`。Anti 从 CLI 的本地会话索引读取消息时间。
 
 ## 桌面宠物
 
@@ -58,13 +58,13 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 ## 用量
 
-底栏先读缓存，再查询，面板关闭时也每 5 分钟更新。定时强制重读、手动刷新保留，在途查询合并；成功缓存 5 分钟，失败不缓存。前端保留上次值并标记失败，自动错误不连续弹通知。
+Claude Code、Codex 和 Anti 先读缓存，再查询，面板关闭时也每 5 分钟更新。成功缓存 5 分钟，失败时前端保留上次结果并标记错误。
 
 - Claude：短生命周期 `claude -p "/usage"`，保留完整原文，只解析可识别的 Current session/week。不要用 transcript token 数冒充套餐百分比；引号不能省，以免 Git Bash 路径转换。
 - Codex：短生命周期 `codex app-server --stdio`，initialize 后请求 `account/rateLimits/read`，不干预正在运行的 TUI，不读取或转发登录凭据；完成或超时即回收进程树。
-- Antigravity CLI：从独立的 `agy --print /usage --output-format json` 读取结构化分组和额度，不读取登录文件，只接受 `usage` 命令的零轮对话结果。面板显示每组的 5 小时和周用量。
+- Antigravity CLI：自动和手动刷新均在 Windows 伪控制台运行 `agy --print /usage --output-format json`，只接受 `usage` 命令的零轮对话结果。查询完成或超时后回收进程树。面板显示每组的 5 小时和周用量。
 
-底栏用 `C`、`O` 和 `A` 代表 Claude Code、Codex 和 Antigravity CLI。上半格显示 5 小时用量，下半格显示周用量。`A` 的两档各取对应窗口各模型组中的最高用量。填充宽度为已用比例，百分比 <75 绿、75–89 橙、≥90 红。悬停查看百分比与 `dd号HH:mm` 格式的重置时间。无法确认的数据用 `--` 表示，更新失败有红色边框。Codex 按实际窗口时长匹配，不误标其他窗口。
+底栏用 `C`、`O` 和 `A` 代表 Claude Code、Codex 和 Antigravity CLI。`C` 上下分区，`O` 和 `A` 左右分区，第一格为 5 小时用量，第二格为周用量。`A` 的两档各取对应窗口各模型组中的最高用量。填充比例为已用比例，百分比 <75 绿、75–89 橙、≥90 红。悬停或键盘聚焦显示三个放大的 SVG 字母和用量百分比，5 小时窗口的重置时间为 `HH:mm`，周窗口为 `dd号HH:mm`。点击后的 5 小时明细也只显示时分。开启减少动态效果时直接显示已用比例。无法确认的数据用 `--` 表示，更新失败有红色边框。Codex 按实际窗口时长匹配，不误标其他窗口。
 
 ## 定时任务
 
@@ -75,6 +75,7 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 - 终端：绑定 leaf，复用标准提交与去重。重启或原终端关闭后暂停，需手动绑定；已过期重新绑定会提示立即发送。
 - Codex 后台：无窗口 `codex exec --skip-git-repo-check --color never -`。
 - Claude 后台：无窗口 `claude -p --output-format text`。
+- Anti 后台：使用 `agy` 的 stream-json 接口，通过 stdin 发送消息，读取最终回复。设置里的 Git 提交信息也可选 Anti 默认模型，沿用暂存差异核对、单行输出和长度限制。
 - 宠物提示：到点自动打开宠物但不抢焦点，气泡直接显示填写内容，不启动 agent、不写终端。支持同样的单次、延时和每日循环。
 
 后台模式不使用用户终端或用户指定目录，内部目录为 app-local-data 下 `scheduled-agent`；经 stdin 传消息，每次新会话，沿用本机登录与配置，不绕过权限检查。最多并行 4 个，30 分钟超时，stdout/stderr 各保留最多 16 KiB，Job Object 回收后代。取消不能撤回已到服务商的请求。
@@ -87,9 +88,11 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 ## 模型网关
 
-右下角「模型网关」可添加供应商，填写名称、Base URL、API Key、接口格式和模型 ID，再选择客户端和代理范围。Claude Code 使用 Anthropic Messages 或 OpenAI Chat。Codex 使用 OpenAI Responses，当前终端需采用 PowerShell 或 Git Bash。发给上游的请求沿用供应商所选的认证方式。网关仅监听 `127.0.0.1`，开发端口 34267、正式端口 34266，使用本地令牌认证。首个使用代理的终端启动时开启监听。
+右下角「模型网关」可添加供应商，填写名称、Base URL、API Key、接口格式和模型 ID，再选择客户端和代理范围。Claude Code 使用 Anthropic Messages 或 OpenAI Chat，Codex 使用 OpenAI Responses，Anti 使用 Gemini 兼容接口。Codex 和 Anti 的网关需要 PowerShell 或 Git Bash。发给上游的请求沿用供应商所选的认证方式。网关仅监听 `127.0.0.1`，开发端口 34267、正式端口 34266，使用本地令牌认证。首个使用代理的终端启动时开启监听。
 
-两个客户端分别保存全局默认和项目设置。项目代理覆盖该项目的全部分屏，随项目关闭和恢复保存。项目设置优先于全局默认，项目内可停用代理或恢复跟随全局。启用前会向选中的供应商发送一条探测请求。对受影响的空闲命令行，应用保留工作目录并重启终端。运行中的命令行在重新打开后应用设置。每个客户端的网关入口按供应商 ID 固定。
+三个客户端分别保存全局默认和项目设置。项目代理覆盖该项目的全部分屏，随项目关闭和恢复保存。项目设置优先于全局默认，项目内可停用代理或恢复跟随全局。启用前会向选中的供应商发送一条探测请求。对受影响的空闲命令行，应用保留工作目录并重启终端。运行中的命令行在重新打开后应用设置。每个客户端的网关入口按供应商 ID 固定。
+
+Anti 网关使用 CLI 的会话级 Gemini API 设置，把模型请求发到本机入口。上游 API Key 保留在网关，CLI 只取得本机令牌。Base URL 填到 Gemini 服务根地址或版本目录，默认使用 `v1beta`，认证可选 `x-goog-api-key` 或 Bearer。Anti 用户设置和 Google 登录由 CLI 自己管理。Gemini 供应商也可直接用于生成 Git 提交信息。
 
 编辑已启用供应商的 Codex 模型 ID、接口格式或上下文窗口后，受影响的空闲命令行同样会重启，以读取最新启动参数。
 

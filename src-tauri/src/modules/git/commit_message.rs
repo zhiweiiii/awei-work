@@ -68,6 +68,13 @@ pub(super) fn generate(
         GitCommitMessageModel::Luna => run_codex(app, prompt, true)?,
         GitCommitMessageModel::CodexDefault => run_codex(app, prompt, false)?,
         GitCommitMessageModel::ClaudeDefault => run_claude(app, prompt)?,
+        GitCommitMessageModel::AgyDefault => crate::modules::agy::run_prompt(
+            &working_directory(app)?,
+            prompt,
+            Duration::from_secs(120),
+            || false,
+            true,
+        )?,
         GitCommitMessageModel::Gateway => {
             let selected = gateway_model.ok_or("未选定转发模型")?;
             gateway::generate_text(selected.provider, selected.model, prompt)?

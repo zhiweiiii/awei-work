@@ -1,6 +1,6 @@
 [package]
 name = "awei-work"
-version = "1.2.0"
+version = "1.2.1"
 description = "awei-work, a terminal-first workspace for Claude Code and Codex"
 authors = ["zhiweiiii", "crynta"]
 license = "Apache-2.0"

@@ -321,6 +321,12 @@ pub(crate) fn resolve_session_file(
     id: Option<&str>,
     started_at: SystemTime,
 ) -> Option<PathBuf> {
+    if agent == "agy" {
+        let id = id?;
+        return crate::modules::agy::may_resume(cwd, id)
+            .then(|| crate::modules::agy::transcript_path(id))
+            .flatten();
+    }
     let mut candidates = Vec::new();
     for path in session_paths(cwd, agent).ok()? {
         if id.is_some_and(|id| {
@@ -357,6 +363,10 @@ pub(crate) fn resolve_session_file(
 }
 
 pub(crate) fn session_id_for_file(path: &Path, agent: &str, cwd: &str) -> Option<String> {
+    if agent == "agy" {
+        let id = crate::modules::agy::transcript_id(path)?;
+        return crate::modules::agy::may_resume(cwd, id).then(|| id.to_owned());
+    }
     let metadata = fs::metadata(path).ok()?;
     let header = session_header(path, agent, &metadata)?;
     (valid_id(&header.id) && crate::modules::transcript::same_dir(&header.cwd, cwd))
@@ -371,7 +381,7 @@ pub async fn agent_resume_command(
     workspace: Option<crate::modules::workspace::WorkspaceEnv>,
 ) -> Result<String, String> {
     let _ = workspace;
-    if !matches!(agent.as_str(), "claude" | "codex")
+    if !matches!(agent.as_str(), "claude" | "codex" | "agy")
         || !valid_id(&id)
         || cwd.is_empty()
         || cwd.len() > 32768
@@ -383,10 +393,10 @@ pub async fn agent_resume_command(
         resolve_session_file(&cwd, &agent, Some(&id), UNIX_EPOCH)
             .ok_or("Saved agent session is missing or belongs to another directory")?;
         log::info!("agent restore: verified agent={agent} session={id}");
-        Ok(if agent == "claude" {
-            format!("claude --resume {id}")
-        } else {
-            format!("codex resume {id}")
+        Ok(match agent.as_str() {
+            "claude" => format!("claude --resume {id}"),
+            "agy" => format!("agy --conversation {id}"),
+            _ => format!("codex resume {id}"),
         })
     })
     .await
@@ -399,7 +409,7 @@ pub async fn agent_session_last_message_at(
     agent: String,
     id: String,
 ) -> Result<Option<i64>, String> {
-    if !matches!(agent.as_str(), "claude" | "codex")
+    if !matches!(agent.as_str(), "claude" | "codex" | "agy")
         || !valid_id(&id)
         || cwd.is_empty()
         || cwd.len() > 32768
@@ -408,6 +418,9 @@ pub async fn agent_session_last_message_at(
         return Err("Invalid saved agent session".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
+        if agent == "agy" {
+            return crate::modules::agy::last_user_message_at(&cwd, &id);
+        }
         let at = resolve_session_file(&cwd, &agent, Some(&id), UNIX_EPOCH)
             .and_then(|file| crate::modules::transcript::read_activity_at(&file, &agent));
         log::info!("agent restore: agent={agent} session={id} last_user_message_at={at:?}");
@@ -425,6 +438,7 @@ pub async fn agent_sessions(
     tauri::async_runtime::spawn_blocking(move || {
         let mut all = list_sessions(&cwd, "claude")?;
         all.extend(list_sessions(&cwd, "codex")?);
+        all.extend(crate::modules::agy::sessions(&cwd, MAX_PER_AGENT));
         // dsh has its own store and its own format, so it is read by its own
         // module rather than forced through this one's per-agent walk.
         all.extend(
