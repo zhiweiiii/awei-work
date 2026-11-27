@@ -27,6 +27,7 @@ export function parkProjectTabs(
           cold: true,
           autoResume: false,
           lastAgentSession: undefined,
+          headerOrder: undefined,
         }
       : tab,
   );

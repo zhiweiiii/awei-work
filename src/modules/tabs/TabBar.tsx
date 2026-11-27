@@ -8,6 +8,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { headerGroupBounds } from "@/modules/spaces/lib/projectTabs";
 import { useSpaces } from "@/modules/spaces/lib/useSpaces";
 import {
   leafIds,
@@ -136,7 +137,7 @@ export function TabBar({
     seenRef.current = new Set(tabs.map((t) => t.id));
   }, [tabs]);
 
-  const gapAtPoint = (clientX: number, clientY: number) => {
+  const gapAtPoint = (clientX: number, clientY: number, fromId: number) => {
     const bounds = scrollRef.current?.getBoundingClientRect();
     if (
       !bounds ||
@@ -146,14 +147,30 @@ export function TabBar({
       clientY > bounds.bottom
     )
       return null;
+    const group = headerGroupBounds(tabs, fromId);
+    if (!group || group.end - group.start <= 1) return null;
     const els = Array.from(
       scrollRef.current?.querySelectorAll<HTMLElement>("[data-tab-id]") ?? [],
     );
-    for (let i = 0; i < els.length; i++) {
+    if (els.length !== tabs.length) return null;
+    const firstRect = els[group.start].getBoundingClientRect();
+    const lastRect = els[group.end - 1].getBoundingClientRect();
+    const leftLimit =
+      group.start === 0
+        ? bounds.left
+        : (els[group.start - 1].getBoundingClientRect().right +
+            firstRect.left) /
+          2;
+    const rightLimit =
+      group.end === els.length
+        ? bounds.right
+        : (lastRect.right + els[group.end].getBoundingClientRect().left) / 2;
+    if (clientX < leftLimit || clientX > rightLimit) return null;
+    for (let i = group.start; i < group.end; i++) {
       const r = els[i].getBoundingClientRect();
       if (clientX < r.left + r.width / 2) return i;
     }
-    return els.length;
+    return group.end;
   };
 
   const endDrag = useCallback(() => {
@@ -183,7 +200,7 @@ export function TabBar({
     const current = drag.current;
     const container = scrollRef.current;
     if (!current?.active || !container) return;
-    const gap = gapAtPoint(current.x, current.y);
+    const gap = gapAtPoint(current.x, current.y, current.fromId);
     if (gap === null) return;
     const bounds = container.getBoundingClientRect();
     const speed =
@@ -195,16 +212,21 @@ export function TabBar({
     if (!speed) return;
     const previous = container.scrollLeft;
     container.scrollLeft += speed;
-    dropGapRef.current = gapAtPoint(current.x, current.y);
+    dropGapRef.current = gapAtPoint(current.x, current.y, current.fromId);
     setDropGap(dropGapRef.current);
     if (container.scrollLeft !== previous)
       scrollFrame.current = requestAnimationFrame(scrollDrag);
   };
 
   const srcIndex = tabs.findIndex((tab) => tab.id === draggingId);
+  const dragBounds =
+    draggingId === null ? null : headerGroupBounds(tabs, draggingId);
   const showGap = (gap: number) =>
     draggingId !== null &&
+    dragBounds !== null &&
     dropGap === gap &&
+    gap >= dragBounds.start &&
+    gap <= dragBounds.end &&
     gap !== srcIndex &&
     gap !== srcIndex + 1;
 
@@ -264,6 +286,11 @@ export function TabBar({
               const groupName =
                 spaces.find((space) => space.id === t.spaceId)?.name ?? null;
               const projectTitle = `${label}${groupName ? ` (${groupName})` : ""}${t.private ? " (private)" : ""}`;
+              const isGroupStart = i === 0 || tabs[i - 1].spaceId !== t.spaceId;
+              const isGroupEnd =
+                i === tabs.length - 1 || tabs[i + 1].spaceId !== t.spaceId;
+              const sameDragGroup =
+                dragBounds !== null && dragBounds.spaceId === t.spaceId;
 
               // While renaming, render a non-button cell so the <input> is not
               // nested inside the trigger <button> (invalid HTML, and WebKit
@@ -271,7 +298,8 @@ export function TabBar({
               if (editingId === t.id) {
                 return (
                   <Fragment key={t.id}>
-                    {showGap(i) && <DropIndicator />}
+                    {i > 0 && isGroupStart && <GroupSeparator />}
+                    {sameDragGroup && showGap(i) && <DropIndicator />}
                     <div
                       data-tab-id={t.id}
                       className={cn(
@@ -291,7 +319,7 @@ export function TabBar({
                         onCancel={() => setEditingId(null)}
                       />
                     </div>
-                    {i === tabs.length - 1 && showGap(tabs.length) && (
+                    {isGroupEnd && sameDragGroup && showGap(i + 1) && (
                       <DropIndicator />
                     )}
                   </Fragment>
@@ -341,6 +369,8 @@ export function TabBar({
                     st.y = e.clientY;
                     if (!st.active) {
                       if (Math.abs(e.clientX - st.startX) < 4) return;
+                      const group = headerGroupBounds(tabs, st.fromId);
+                      if (!group || group.end - group.start <= 1) return;
                       st.active = true;
                       suppressClick.current = true;
                       setDraggingId(st.fromId);
@@ -349,7 +379,7 @@ export function TabBar({
                       document.body.style.userSelect = "none";
                     }
                     e.preventDefault();
-                    const gap = gapAtPoint(e.clientX, e.clientY);
+                    const gap = gapAtPoint(e.clientX, e.clientY, st.fromId);
                     dropGapRef.current = gap;
                     setDropGap(gap);
                     if (!scrollFrame.current)
@@ -358,7 +388,7 @@ export function TabBar({
                   onPointerUp={(e) => {
                     const st = drag.current;
                     if (!st || st.pointerId !== e.pointerId) return;
-                    const gap = gapAtPoint(e.clientX, e.clientY);
+                    const gap = gapAtPoint(e.clientX, e.clientY, st.fromId);
                     if (st.active && gap !== null) {
                       onReorder?.(st.fromId, gap);
                     } else if (!st.active) {
@@ -507,9 +537,10 @@ export function TabBar({
 
               return (
                 <Fragment key={t.id}>
-                  {showGap(i) && <DropIndicator />}
+                  {i > 0 && isGroupStart && <GroupSeparator />}
+                  {sameDragGroup && showGap(i) && <DropIndicator />}
                   {tabNode}
-                  {i === tabs.length - 1 && showGap(tabs.length) && (
+                  {isGroupEnd && sameDragGroup && showGap(i + 1) && (
                     <DropIndicator />
                   )}
                 </Fragment>
@@ -527,6 +558,15 @@ export function TabBar({
         />
       </div>
     </div>
+  );
+}
+
+function GroupSeparator() {
+  return (
+    <span
+      aria-hidden
+      className="mx-0.5 h-4 w-px shrink-0 bg-foreground/25"
+    />
   );
 }
 

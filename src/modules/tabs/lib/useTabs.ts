@@ -3,6 +3,7 @@ import {
   reorderHeaderProjectsByGap,
   runningProjectIds,
 } from "@/modules/spaces/lib/projectTabs";
+import { useSpaces } from "@/modules/spaces/lib/useSpaces";
 import { ptyIdForLeaf, useAgentActivityStore } from "@/modules/terminal";
 import { pathBasename as basename, pathIdentity } from "@/lib/pathIdentity";
 import { moveProjectTabs } from "./moveProject";
@@ -45,6 +46,8 @@ type TabBase = {
 export type TerminalTab = TabBase & {
   parked?: boolean;
   openedAt?: number;
+  /** Manual drag order within the tab's group; cleared when closed/parked. */
+  headerOrder?: number;
   lastUsedAt?: number;
   lastAgentMessageAt?: number;
   lastAgentSession?: AgentResume;
@@ -628,7 +631,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           useAgentActivityStore.getState().agents,
           ptyIdForLeaf,
         );
-        if (!running.has(owner.id))
+        if (!running.has(owner.id) && owner.headerOrder === undefined)
           setTabs((current) =>
             current.map((tab) =>
               tab.id === owner.id ? { ...tab, openedAt: undefined } : tab,
@@ -677,7 +680,11 @@ export function useTabs(initial?: Partial<TerminalTab>) {
                 parked: false,
                 cold: false,
                 lastUsedAt: Date.now(),
-                ...(tab.parked && { autoResume: false, openedAt: undefined }),
+                ...(tab.parked && {
+                  autoResume: false,
+                  openedAt: undefined,
+                  headerOrder: undefined,
+                }),
               }
             : tab,
         ),
@@ -1427,6 +1434,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
               ptyIdForLeaf,
             ),
             activeTerminalIdRef.current ?? null,
+            useSpaces.getState().spaces,
           ),
           fromId,
           gap,

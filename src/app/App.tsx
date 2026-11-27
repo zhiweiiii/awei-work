@@ -301,6 +301,7 @@ export default function App() {
   const { home, launchCwd, launchCwdResolved } = useWorkspaceHome();
 
   const activeSpaceId = useSpaces((s) => s.activeId);
+  const spacesList = useSpaces((s) => s.spaces);
   const spacesHydrated = useSpaces((s) => s.hydrated);
   useLayoutEffect(() => {
     tabsRef.current = tabs;
@@ -454,8 +455,8 @@ export default function App() {
     [updateTab],
   );
   const headerTabs = useMemo(
-    () => headerProjects(tabs, runningProjects, currentOwnerTabId),
-    [tabs, runningProjects, currentOwnerTabId],
+    () => headerProjects(tabs, runningProjects, currentOwnerTabId, spacesList),
+    [tabs, runningProjects, currentOwnerTabId, spacesList],
   );
 
   useWindowTitle(activeTab, explorerRoot);
@@ -1550,7 +1551,6 @@ export default function App() {
     [parkProject],
   );
 
-  const spacesList = useSpaces((s) => s.spaces);
   useEditorFileSync({
     tabs,
     spaces: spacesList,

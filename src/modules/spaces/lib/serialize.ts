@@ -30,6 +30,7 @@ export type SerializedTab =
       lastUsedAt?: number;
       lastAgentMessageAt?: number;
       openedAt?: number;
+      headerOrder?: number;
       parked?: boolean;
       lastAgentSession?: AgentResume;
       gatewayRoutes?: GatewayRoutes;
@@ -70,6 +71,10 @@ export function isSerializedTabs(value: unknown): value is SerializedTab[] {
           (typeof item.openedAt === "number" &&
             Number.isSafeInteger(item.openedAt) &&
             item.openedAt >= 0)) &&
+        (item.headerOrder === undefined ||
+          (typeof item.headerOrder === "number" &&
+            Number.isSafeInteger(item.headerOrder) &&
+            item.headerOrder >= 0)) &&
         (item.lastUsedAt === undefined ||
           (typeof item.lastUsedAt === "number" &&
             Number.isFinite(item.lastUsedAt) &&
@@ -150,6 +155,7 @@ function serializeTab(tab: Tab): SerializedTab | null {
           lastAgentMessageAt: tab.lastAgentMessageAt,
         }),
         ...(tab.openedAt !== undefined && { openedAt: tab.openedAt }),
+        ...(tab.headerOrder !== undefined && { headerOrder: tab.headerOrder }),
         ...(tab.parked && { parked: true }),
         ...(tab.lastAgentSession && { lastAgentSession: tab.lastAgentSession }),
         ...(tab.gatewayRoutes && { gatewayRoutes: tab.gatewayRoutes }),
@@ -262,6 +268,7 @@ function hydrateTab(
           lastAgentMessageAt: s.lastAgentMessageAt,
         }),
         ...(s.openedAt !== undefined && { openedAt: s.openedAt }),
+        ...(s.headerOrder !== undefined && { headerOrder: s.headerOrder }),
         ...(s.parked && { parked: true }),
         ...(s.lastAgentSession && { lastAgentSession: s.lastAgentSession }),
         ...(s.gatewayRoutes && { gatewayRoutes: s.gatewayRoutes }),

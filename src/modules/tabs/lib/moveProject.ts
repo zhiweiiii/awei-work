@@ -23,7 +23,13 @@ export function moveProjectTabs(
   const moved = tabs
     .filter(belongs)
     .map((tab) =>
-      tab.spaceId === targetSpaceId ? tab : { ...tab, spaceId: targetSpaceId },
+      tab.spaceId === targetSpaceId
+        ? tab
+        : {
+            ...tab,
+            spaceId: targetSpaceId,
+            ...(tab.kind === "terminal" && { headerOrder: undefined }),
+          },
     );
   const remaining = tabs.filter((tab) => !belongs(tab));
   let gap =
