@@ -151,6 +151,7 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>, blocks: bool) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERAX_TERMINAL", "1");
+    apply_agy_path(cmd);
     if blocks {
         cmd.env("TERAX_BLOCKS", "1");
     }
@@ -168,6 +169,33 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>, blocks: bool) {
         cmd.cwd(cwd);
     } else {
         log::warn!("pty cwd: no usable directory, inheriting from process");
+    }
+}
+
+fn agy_installation() -> Option<PathBuf> {
+    let executable = dirs::data_local_dir()?
+        .join("agy")
+        .join("bin")
+        .join("agy.exe");
+    is_real_executable(&executable).then_some(executable)
+}
+
+pub(crate) fn agy_executable() -> Option<PathBuf> {
+    which_in_path("agy.exe").or_else(agy_installation)
+}
+
+fn apply_agy_path(cmd: &mut CommandBuilder) {
+    let Some(executable) = agy_installation() else {
+        return;
+    };
+    if which_in_path("agy.exe").is_some() {
+        return;
+    }
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    if let Ok(path) = std::env::join_paths(
+        std::env::split_paths(&inherited).chain(executable.parent().map(Path::to_path_buf)),
+    ) {
+        cmd.env("PATH", path);
     }
 }
 

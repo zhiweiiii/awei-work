@@ -24,6 +24,15 @@ if [ -z "$__TERAX_HOOKS_LOADED" ]; then
   # on reload, guard with a flag.
   [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"
 
+  if [ "$(type -t agy)" = file ]; then
+    agy() {
+      if [ -t 0 ] && [ -t 1 ]; then
+        printf '\e]133;C;agy\e\\'
+      fi
+      command agy "$@"
+    }
+  fi
+
   if [ -n "$AWEI_WORK_CODEX_GATEWAY" ]; then
     codex() {
       local options=(

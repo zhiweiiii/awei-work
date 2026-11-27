@@ -11,6 +11,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { agentFileRef } from "@/lib/agentRef";
+import { errorToast } from "@/lib/errorToast";
 import { pathIdentity } from "@/lib/pathIdentity";
 import {
   headerProjects,
@@ -93,6 +94,7 @@ import {
   pasteToLeaf,
   ptyIdForLeaf,
   setLeafGatewayRoutes,
+  submitToIdleLeaf,
   submitToLeaf,
   type TerminalPaneHandle,
   useAgentActivityStore,
@@ -1630,6 +1632,31 @@ export default function App() {
     [isTerminalTab, activeLeafId],
   );
 
+  const runAgy = useCallback(
+    (resume: boolean) => {
+      if (!isTerminalTab || activeLeafId === null) return;
+      const isCurrent = () => {
+        if (
+          activeIdRef.current !== activeId ||
+          useSsh.getState().workspaceId !== null
+        )
+          return false;
+        const tab = tabsRef.current.find((item) => item.id === activeId);
+        return tab?.kind === "terminal" && tab.activeLeafId === activeLeafId;
+      };
+      void submitToIdleLeaf(activeLeafId, resume ? "agy -c" : "agy", isCurrent)
+        .then((started) => {
+          if (!isCurrent()) return;
+          if (started) terminalRefs.current.get(activeLeafId)?.focus();
+          else toast.info("请在空闲命令行中启动 Antigravity CLI");
+        })
+        .catch((error) => {
+          if (isCurrent()) errorToast("启动 Antigravity CLI 失败", error);
+        });
+    },
+    [activeId, activeLeafId, isTerminalTab],
+  );
+
   return (
     <ThemeProvider>
       <TooltipProvider>
@@ -1668,6 +1695,9 @@ export default function App() {
                   <SessionHistoryMenu
                     cwd={activeCwd}
                     onRun={runInActiveTerminal}
+                    onRunAgy={
+                      isTerminalTab && activeLeafId !== null ? runAgy : null
+                    }
                     onOpenDsh={activeCwd ? () => void openDsh() : null}
                   />
                 )

@@ -297,6 +297,38 @@ export function submitToLeaf(leafId: number, text: string): boolean {
   return true;
 }
 
+const idleSubmissions = new Set<number>();
+
+export async function submitToIdleLeaf(
+  leafId: number,
+  command: string,
+  isCurrent: () => boolean,
+): Promise<boolean> {
+  const session = sessions.get(leafId);
+  const pty = session?.pty;
+  const cwd = session?.lastCwd;
+  if (!session || !pty || idleSubmissions.has(pty.id)) return false;
+  const idle = () =>
+    sessions.get(leafId) === session &&
+    session.pty === pty &&
+    !session.shellExited &&
+    !session.commandRunning &&
+    !session.inputDraft &&
+    !isAgentActivePty(pty.id) &&
+    session.lastCwd === cwd &&
+    isCurrent();
+  idleSubmissions.add(pty.id);
+  try {
+    if (!idle() || (await leafHasForegroundProcess(leafId)) || !idle())
+      return false;
+    await pty.write(`${command}\r`);
+    session.everSubmitted = true;
+    return true;
+  } finally {
+    idleSubmissions.delete(pty.id);
+  }
+}
+
 /**
  * Bracketed-paste text into a leaf without submitting it, so the user can
  * type a follow-up question before pressing Enter. Used to hand a code

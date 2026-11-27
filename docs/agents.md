@@ -4,6 +4,8 @@ awei-work 使用用户已安装并登录的 CLI，模型权限和费用由对应
 
 ## 会话历史与恢复
 
+安装并登录 Antigravity CLI 后，可以从顶部「会话历史」新建 `agy` 对话，或在空闲终端用 `agy -c` 继续当前目录最近的对话。其他历史可在 CLI 里用 `/resume` 选择。应用兼容 Windows 默认安装目录；PowerShell 和 Git Bash 识别 `agy` 运行与退出。应用自动恢复继续使用已确认身份的 Claude Code 和 Codex 会话。
+
 顶部菜单提供新对话 Claude Code/Codex/dsh，并把当前项目目录的历史合并，按最后活动时间排序。点 Claude/Codex 记录通过正常提交入口执行 `claude --resume <UUID>` 或 `codex resume <UUID>`，不是只把文字插入输入栏。dsh 没有终端界面，菜单里的"新对话 dsh"和 dsh 记录都打开 dsh 的网页界面：dsh 已在跑就直接用，没跑就启动 `dsh web --no-open`（未全局安装时回退 `npx @deepseek-ai/dsh`），读完它打印的带令牌 URL 后开一个预览标签页。令牌只在那行输出里，所以打开的是那行 URL，不是裸端口。服务端由本进程持有，退出时连同子进程一起结束；端口已被占用时打开该端口首页而不是试图再绑一次。
 
 dsh 的会话从 `~/.dsh/sessions/<项目键>/<会话>/session.v4.jsonl.zstd` 读，优先 v4。日志是逐帧拼接的 zstd（每次 flush 一帧），必须逐帧解压后拼接才能读到第一条之后的全部内容；只解第一帧只能拿到会话头。标题优先取 `~/.dsh/storages/session_projcache.json`（服务端持续写入），没有就取日志里的 `session/title`，再没有取第一条真实用户消息，过滤 harness 注入的提醒和运行时上下文。项目键按 dsh 自己的规则编码（分隔符折叠成 `-`，非法字符写成 `~` 加四位十六进制），写错只会读不到，不会读错。
@@ -60,8 +62,9 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 - Claude：短生命周期 `claude -p "/usage"`，保留完整原文，只解析可识别的 Current session/week。不要用 transcript token 数冒充套餐百分比；引号不能省，以免 Git Bash 路径转换。
 - Codex：短生命周期 `codex app-server --stdio`，initialize 后请求 `account/rateLimits/read`，不干预正在运行的 TUI，不读取或转发登录凭据；完成或超时即回收进程树。
+- Antigravity CLI：从独立的 `agy --print /usage --output-format json` 读取结构化分组和额度，不读取登录文件，只接受 `usage` 命令的零轮对话结果。面板显示每组的 5 小时和周用量。
 
-常驻显示 `C:5h-33%(11:39) 周-50%(10/11) O:5h-...`，百分比 <75 绿、75–89 橙、≥90 红。5h 时间显示本地时分，周时间显示月日；无法确认数据/时间则 `--`，错误用 `!` 标记并在详情保留原文。Codex 按实际窗口时长匹配，不误标其他窗口。查询不发送普通编码消息，但本项目不替 CLI 或服务商承诺计费策略。
+底栏用 `C`、`O` 和 `A` 代表 Claude Code、Codex 和 Antigravity CLI。上半格显示 5 小时用量，下半格显示周用量。`A` 的两档各取对应窗口各模型组中的最高用量。填充宽度为已用比例，百分比 <75 绿、75–89 橙、≥90 红。悬停查看百分比与 `dd号HH:mm` 格式的重置时间。无法确认的数据用 `--` 表示，更新失败有红色边框。Codex 按实际窗口时长匹配，不误标其他窗口。
 
 ## 定时任务
 

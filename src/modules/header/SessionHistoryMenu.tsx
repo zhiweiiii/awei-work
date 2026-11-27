@@ -61,6 +61,7 @@ type Props = {
   /** Runs a command in the terminal being shown. Null when there is none,
    *  which is when there is nothing to resume into. */
   onRun: ((command: string) => void) | null;
+  onRunAgy: ((resume: boolean) => void) | null;
   /** Opens the dsh web page, starting the server first if it is not running.
    *  dsh has no terminal surface, so its conversations do not go through a
    *  shell at all. Null while the list has no directory to scope them to. */
@@ -78,7 +79,7 @@ type Props = {
  * read per session, cheap but not free, and an unopened menu should cost
  * nothing.
  */
-export function SessionHistoryMenu({ cwd, onRun, onOpenDsh }: Props) {
+export function SessionHistoryMenu({ cwd, onRun, onRunAgy, onOpenDsh }: Props) {
   const workspace = LOCAL_WORKSPACE;
   const scopeKey = workspaceScopeKey(workspace);
   const [open, setOpen] = useState(false);
@@ -178,6 +179,10 @@ export function SessionHistoryMenu({ cwd, onRun, onOpenDsh }: Props) {
           <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
           新对话 Codex
         </DropdownMenuItem>
+        <DropdownMenuItem disabled={!onRunAgy} onSelect={() => onRunAgy?.(false)}>
+          <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
+          新对话 Antigravity CLI
+        </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!onOpenDsh}
           onSelect={() => onOpenDsh?.()}
@@ -190,6 +195,14 @@ export function SessionHistoryMenu({ cwd, onRun, onOpenDsh }: Props) {
         <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
           {cwd ? `${cwd} 的历史会话` : "没有命令行"}
         </DropdownMenuLabel>
+        <DropdownMenuItem
+          disabled={!onRunAgy || !cwd}
+          onSelect={() => onRunAgy?.(true)}
+          title="使用 agy -c 继续当前目录的最近对话"
+        >
+          <HugeiconsIcon icon={Clock01Icon} size={13} strokeWidth={1.75} />
+          继续最近的 Antigravity CLI 对话
+        </DropdownMenuItem>
 
         {loading && sessions === null ? (
           <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">

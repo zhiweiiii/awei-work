@@ -18,6 +18,7 @@ export {
   respawnSession,
   snapshotLeaf,
   submitToLeaf,
+  submitToIdleLeaf,
   whenSessionReady,
   writeToSession,
 } from "./lib/useTerminalSession";

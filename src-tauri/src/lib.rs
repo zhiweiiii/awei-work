@@ -337,6 +337,8 @@ pub fn run() {
             usage::claude_usage_cached,
             usage::codex_usage,
             usage::codex_usage_cached,
+            usage::agy_usage,
+            usage::agy_usage_cached,
             gateway::gateway_status,
             gateway::gateway_set_config,
             fs::tree::list_subdirs,
