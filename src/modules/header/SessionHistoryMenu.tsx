@@ -63,7 +63,7 @@ type Props = {
   /** Runs a command in the terminal being shown. Null when there is none,
    *  which is when there is nothing to resume into. */
   onRun: ((command: string) => void) | null;
-  onRunAgy: ((resume: boolean, id?: string) => void) | null;
+  onRunAgy: ((id?: string) => void) | null;
   /** Opens the dsh web page, starting the server first if it is not running.
    *  dsh has no terminal surface, so its conversations do not go through a
    *  shell at all. Null while the list has no directory to scope them to. */
@@ -71,7 +71,7 @@ type Props = {
 };
 
 /**
- * Past Claude Code and Codex conversations for this directory, resumable.
+ * Past agent conversations for this directory.
  *
  * The list is read from the files the agents write, not from their own resume
  * pickers: those are interactive TUIs, so using them would mean spawning a
@@ -135,7 +135,7 @@ export function SessionHistoryMenu({ cwd, onRun, onRunAgy, onOpenDsh }: Props) {
     if (currentWorkspaceScopeKey() !== scopeKey || !sessions?.includes(session))
       return;
     if (session.agent === "agy") {
-      onRunAgy?.(true, session.id);
+      onRunAgy?.(session.id);
       return;
     }
     const command = resumeCommand(session);
@@ -181,10 +181,7 @@ export function SessionHistoryMenu({ cwd, onRun, onRunAgy, onOpenDsh }: Props) {
           <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
           新对话 Codex
         </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={!onRunAgy}
-          onSelect={() => onRunAgy?.(false)}
-        >
+        <DropdownMenuItem disabled={!onRunAgy} onSelect={() => onRunAgy?.()}>
           <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
           新对话 Antigravity CLI
         </DropdownMenuItem>
@@ -200,15 +197,6 @@ export function SessionHistoryMenu({ cwd, onRun, onRunAgy, onOpenDsh }: Props) {
         <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
           {cwd ? `${cwd} 的历史会话` : "没有命令行"}
         </DropdownMenuLabel>
-        <DropdownMenuItem
-          disabled={!onRunAgy || !cwd}
-          onSelect={() => onRunAgy?.(true)}
-          title="使用 agy -c 继续当前目录的最近对话"
-        >
-          <HugeiconsIcon icon={Clock01Icon} size={13} strokeWidth={1.75} />
-          继续最近的 Antigravity CLI 对话
-        </DropdownMenuItem>
-
         {loading && sessions === null ? (
           <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
             读取中…

@@ -1634,7 +1634,7 @@ export default function App() {
   );
 
   const runAgy = useCallback(
-    (resume: boolean, id?: string) => {
+    (id?: string) => {
       if (!isTerminalTab || activeLeafId === null) return;
       const cwd = leafCwd(activeLeafId);
       const isCurrent = () => {
@@ -1654,7 +1654,7 @@ export default function App() {
       const command =
         id && cwd
           ? native.agentResumeCommand(cwd, "agy", id)
-          : Promise.resolve(resume ? "agy -c" : "agy");
+          : Promise.resolve("agy");
       void command
         .then(
           (value) =>

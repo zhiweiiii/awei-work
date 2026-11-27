@@ -47,7 +47,7 @@ export function StatusBar({
   }, []);
 
   return (
-    <footer className="flex min-h-8 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border/60 bg-card/60 py-0.5 pl-3 pr-4 text-[11px]">
+    <footer className="flex min-h-8 shrink-0 select-none flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border/60 bg-card/60 py-0.5 pl-3 pr-4 text-[11px]">
       <div className="flex min-w-0 flex-1 basis-60 items-center gap-2">
         {windowBar}
       </div>

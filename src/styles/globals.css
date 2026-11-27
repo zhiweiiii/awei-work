@@ -135,6 +135,21 @@
   html {
     @apply font-sans;
     }
+  [data-tauri-drag-region],
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"],
+  [role="option"],
+  [role="switch"],
+  [role="checkbox"],
+  [role="slider"],
+  [data-slot="resizable-handle"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 :root {
@@ -238,10 +253,6 @@ html[data-chrome="borderless"] #settings-root {
   display: none !important;
 }
 
-body {
-  -webkit-user-select: none;
-  user-select: none;
-}
 input,
 textarea,
 [contenteditable="true"],
@@ -349,6 +360,57 @@ html *::-webkit-scrollbar {
 }
 .terax-pill-in {
   animation: terax-pill-in var(--dur-base) var(--ease-premium);
+}
+
+.terax-project-tab {
+  transition-property: background-color, color, box-shadow, padding, border-color;
+  transition-duration: var(--dur-base);
+  transition-timing-function: var(--ease-premium);
+}
+
+.terax-project-rest {
+  display: inline-grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transform: translateX(-4px) scaleX(0.92);
+  transform-origin: left center;
+  transition-property: grid-template-columns, opacity, transform;
+  transition-duration: var(--dur-base);
+  transition-timing-function: var(--ease-premium);
+}
+.terax-project-rest[data-expanded="true"] {
+  grid-template-columns: 1fr;
+  opacity: 1;
+  transform: translateX(0) scaleX(1);
+}
+.terax-project-rest-inner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.terax-project-close {
+  display: inline-grid;
+  grid-template-columns: 0fr;
+  margin-left: 0;
+  opacity: 0;
+  transform: scale(0.75);
+  transition-property: grid-template-columns, margin-left, opacity, transform;
+  transition-duration: var(--dur-base);
+  transition-timing-function: var(--ease-premium);
+}
+.terax-project-close[data-expanded="true"] {
+  grid-template-columns: 1fr;
+  margin-left: 0.25rem;
+  opacity: 1;
+  transform: scale(1);
+}
+.terax-project-close-inner {
+  min-width: 0;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* Text shimmer loop (replaces motion background-position animation). Driven by

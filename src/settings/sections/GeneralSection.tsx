@@ -273,7 +273,7 @@ export function GeneralSection() {
                 savePreference(setGitCommitMessageModel(value));
             }}
           >
-            <SelectTrigger aria-label="提交信息生成模型" className="w-52 max-w-full">
+            <SelectTrigger aria-label="提交信息生成模型" className="w-72 max-w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

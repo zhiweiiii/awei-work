@@ -11,10 +11,12 @@ pub(crate) const MIN_GIT_VERSION: &str = "2.23";
 #[serde(rename_all = "kebab-case")]
 pub enum GitCommitMessageModel {
     #[default]
-    Luna,
-    CodexDefault,
-    ClaudeDefault,
-    AgyDefault,
+    #[serde(alias = "luna", alias = "codex-default")]
+    CodexFast,
+    #[serde(alias = "claude-default")]
+    ClaudeFast,
+    #[serde(alias = "agy-default")]
+    AgyFast,
     Gateway,
 }
 

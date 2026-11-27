@@ -171,6 +171,7 @@ pub(crate) fn run_prompt(
     timeout: Duration,
     cancelled: impl Fn() -> bool,
     summarize: bool,
+    model: Option<&str>,
 ) -> Result<String, String> {
     let executable = agy_executable().ok_or("找不到 Antigravity CLI，请先安装并登录 agy")?;
     let mut command = Command::new(executable);
@@ -181,6 +182,9 @@ pub(crate) fn run_prompt(
         "stream-json",
         "--disable-slash-commands",
     ]);
+    if let Some(model) = model {
+        command.args(["--model", model]);
+    }
     if summarize {
         command.arg("--settings").arg(
             json!({

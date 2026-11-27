@@ -4,7 +4,7 @@ awei-work 使用用户已安装并登录的 CLI，模型权限和费用由对应
 
 ## 会话历史与恢复
 
-安装并登录 Antigravity CLI 后，可以从顶部「会话历史」新建 `agy` 对话、继续当前目录最近对话，或从列表恢复指定会话。应用兼容 Windows 默认安装目录；PowerShell 和 Git Bash 识别 `agy` 运行与退出，并通过每个终端的 CLI 日志绑定实际会话 UUID。应用只读 Antigravity 的会话索引，核对工作区后按 `agy --conversation <UUID>` 恢复。已绑定的 Anti 会话也参与按最近用户消息时间排序和重启恢复。
+安装并登录 Antigravity CLI 后，可以从顶部「会话历史」新建 `agy` 对话，或从按最后活动时间排序的列表恢复指定会话。应用兼容 Windows 默认安装目录；PowerShell 和 Git Bash 识别 `agy` 运行与退出，并通过每个终端的 CLI 日志绑定实际会话 UUID。应用只读 Antigravity 的会话索引，核对工作区后按 `agy --conversation <UUID>` 恢复。已绑定的 Anti 会话也参与按最近用户消息时间排序和重启恢复。
 
 顶部菜单提供新对话 Claude Code/Codex/dsh，并把当前项目目录的历史合并，按最后活动时间排序。点 Claude/Codex 记录通过正常提交入口执行 `claude --resume <UUID>` 或 `codex resume <UUID>`，不是只把文字插入输入栏。dsh 没有终端界面，菜单里的"新对话 dsh"和 dsh 记录都打开 dsh 的网页界面：dsh 已在跑就直接用，没跑就启动 `dsh web --no-open`（未全局安装时回退 `npx @deepseek-ai/dsh`），读完它打印的带令牌 URL 后开一个预览标签页。令牌只在那行输出里，所以打开的是那行 URL，不是裸端口。服务端由本进程持有，退出时连同子进程一起结束；端口已被占用时打开该端口首页而不是试图再绑一次。
 
@@ -14,9 +14,9 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 每文件头部读取上限 192 KB；扫描结果缓存 2 秒/最多 32 目录，头部缓存最多 512 文件。扫描有项数、文件数、深度和时间预算，超限返回错误而非用部分结果判断唯一性。菜单只在打开时加载，回复绑定目录/环境/打开代次。历史读取 Windows 用户目录。
 
-自动恢复最后向 AI 发消息的 5 个非私密、未收纳项目，按 `lastAgentMessageAt` 选择，默认激活最新的项目。`lastUsedAt` 仍记录访问，但不参与 AI 最近项目判断。身份由对应 PTY 的 agent 运行代次、固定记录文件、UUID/cwd 核对确认，不以最新文件代替当前会话。消息时间来自真实会话：Codex 兼容 `event_msg/user_message` 和 `response_item` 中的用户消息，后者优先按 `internal_chat_message_metadata_passthrough` 中的用户来源或 `user.*` 内容类型识别；没有来源元数据的旧记录按文本过滤上下文前言。明确标为用户的 XML 回复仍计入，启动注入的项目说明与环境上下文不计入。Claude 沿用 human 消息解析，排除工具结果、meta 和压缩摘要。AI 输出或文件 mtime 不作为用户操作时间。运行及阶段变化后约 1 秒检查，随后每 15 秒及退出保存时检查所有非私密、未收纳项目的分屏，而不是先按访问时间取5个；没有 agent 时不周期读历史。只持久化消息时间及会话身份，不另存正文。
+自动恢复最后向 AI 发消息的 10 个非私密、未收纳项目，按 `lastAgentMessageAt` 选择，默认激活最新的项目。`lastUsedAt` 仍记录访问，但不参与 AI 最近项目判断。身份由对应 PTY 的 agent 运行代次、固定记录文件、UUID/cwd 核对确认，不以最新文件代替当前会话。消息时间来自真实会话：Codex 兼容 `event_msg/user_message` 和 `response_item` 中的用户消息，后者优先按 `internal_chat_message_metadata_passthrough` 中的用户来源或 `user.*` 内容类型识别；没有来源元数据的旧记录按文本过滤上下文前言。明确标为用户的 XML 回复仍计入，启动注入的项目说明与环境上下文不计入。Claude 沿用 human 消息解析，排除工具结果、meta 和压缩摘要。AI 输出或文件 mtime 不作为用户操作时间。运行及阶段变化后约 1 秒检查，随后每 15 秒及退出保存时检查所有非私密、未收纳项目的分屏，而不是先按访问时间取10个；没有 agent 时不周期读历史。只持久化消息时间及会话身份，不另存正文。
 
-启动只恢复每个项目最近发消息分屏的一个 agent。会话检查结果按原面板树和项目身份合并，实时不切换分屏，退出保存才记下恢复面板；较旧检查不能覆盖新消息时间。验证确切记录后等待 PTY 和提示符就绪，预算 20 秒；隐藏面板临时绑定现有渲染器，不抢焦点。项目/面板关闭、目录改变、已有任务或用户已开始输入草稿均取消。记录缺失或超时不会新建对话、不会重放消息。旧配置若已有 UUID/cwd，以最多4个并行读取补足该确切会话的消息时间；缺失或不支持的记录保持未知，不按访问时间凑满5个。旧版本未保存 UUID 时，升级后先运行一次会话并正常保存。
+启动只恢复每个项目最近发消息分屏的一个 agent。会话检查结果按原面板树和项目身份合并，实时不切换分屏，退出保存才记下恢复面板；较旧检查不能覆盖新消息时间。验证确切记录后等待 PTY 和提示符就绪，预算 20 秒；隐藏面板临时绑定现有渲染器，不抢焦点。项目/面板关闭、目录改变、已有任务或用户已开始输入草稿均取消。记录缺失或超时不会新建对话、不会重放消息。旧配置若已有 UUID/cwd，以最多4个并行读取补足该确切会话的消息时间；缺失或不支持的记录保持未知，不按访问时间凑满10个。旧版本未保存 UUID 时，升级后先运行一次会话并正常保存。
 
 启动补读消息时间时，沿用增量解析缓存，在每个确切文件约 2 秒预算内连续读取到末尾，避免大日志超过单次 32 MiB/200ms 额度后被当成无消息时间。未读完、文件损坏或没有用户消息仍保持未知，不拿中途的旧时间参与排序；实时界面读取保留原有单次额度。
 
@@ -60,11 +60,11 @@ Claude 从 `~/.claude/projects/<escaped cwd>/` 读取，Codex 从 `~/.codex/sess
 
 Claude Code、Codex 和 Anti 先读缓存，再查询，面板关闭时也每 5 分钟更新。成功缓存 5 分钟，失败时前端保留上次结果并标记错误。
 
-- Claude：短生命周期 `claude -p "/usage"`，保留完整原文，只解析可识别的 Current session/week。不要用 transcript token 数冒充套餐百分比；引号不能省，以免 Git Bash 路径转换。
-- Codex：短生命周期 `codex app-server --stdio`，initialize 后请求 `account/rateLimits/read`，不干预正在运行的 TUI，不读取或转发登录凭据；完成或超时即回收进程树。
-- Antigravity CLI：自动和手动刷新均在 Windows 伪控制台运行 `agy --print /usage --output-format json`，只接受 `usage` 命令的零轮对话结果。查询完成或超时后回收进程树。面板显示每组的 5 小时和周用量。
+- Claude：隐藏窗口运行 `claude -p /usage`，直接传递参数，保留完整原文并解析可识别的 Current session/week。不要用 transcript token 数冒充套餐百分比。
+- Codex：隐藏窗口运行 `codex app-server --stdio`，优先直接启动 Windows 原生程序。initialize 后请求 `account/rateLimits/read`，不干预正在运行的 TUI，不读取或转发登录凭据。完成或超时即回收进程树。
+- Antigravity CLI：自动和手动刷新均以 `CREATE_NO_WINDOW` 直接运行 `agy --print /usage --output-format json`，关闭标准输入，通过管道读取 JSON。仅在该查询进程设 `AGY_CLI_DISABLE_AUTO_UPDATE=true`，避免刷新启动 CLI 更新器。只接受 `usage` 命令的零轮对话结果。查询完成或超时后回收进程树。
 
-底栏用 `C`、`O` 和 `A` 代表 Claude Code、Codex 和 Antigravity CLI。`C` 上下分区，`O` 和 `A` 左右分区，第一格为 5 小时用量，第二格为周用量。`A` 的两档各取对应窗口各模型组中的最高用量。填充比例为已用比例，百分比 <75 绿、75–89 橙、≥90 红。悬停或键盘聚焦显示三个放大的 SVG 字母和用量百分比，5 小时窗口的重置时间为 `HH:mm`，周窗口为 `dd号HH:mm`。点击后的 5 小时明细也只显示时分。开启减少动态效果时直接显示已用比例。无法确认的数据用 `--` 表示，更新失败有红色边框。Codex 按实际窗口时长匹配，不误标其他窗口。
+底栏用 SVG 字母 `C`、`O`、`A`、`A` 分别显示 Claude Code、Codex 以及 Anti 的 Gemini、Claude / GPT 两个额度组。`C` 上下分区，`O` 和 `A` 左右分区，第一格为 5 小时用量，第二格为周用量。Anti 两组共用一次查询，各自显示额度和重置时间。填充比例为已用比例，百分比 <75 绿、75–89 橙、≥90 红。悬停、键盘聚焦和点击使用同一个面板，点击可固定。百分比放在字母的对应分区内，重置时间放在外侧，5 小时显示 `HH:mm`，周用量显示 `dd号HH:mm`。面板右下可手动刷新。开启减少动态效果时直接显示已用比例。无法确认的数据用 `--` 表示，更新失败有红色边框。Codex 按实际窗口时长匹配，不误标其他窗口。
 
 ## 定时任务
 
@@ -75,7 +75,7 @@ Claude Code、Codex 和 Anti 先读缓存，再查询，面板关闭时也每 5 
 - 终端：绑定 leaf，复用标准提交与去重。重启或原终端关闭后暂停，需手动绑定；已过期重新绑定会提示立即发送。
 - Codex 后台：无窗口 `codex exec --skip-git-repo-check --color never -`。
 - Claude 后台：无窗口 `claude -p --output-format text`。
-- Anti 后台：使用 `agy` 的 stream-json 接口，通过 stdin 发送消息，读取最终回复。设置里的 Git 提交信息也可选 Anti 默认模型，沿用暂存差异核对、单行输出和长度限制。
+- Anti 后台：使用 `agy` 的 stream-json 接口，通过 stdin 发送消息，读取最终回复。设置里的 Git 提交信息可选 Gemini 4 Hydrogen 低推理档，沿用暂存差异核对、单行输出和长度限制。
 - 宠物提示：到点自动打开宠物但不抢焦点，气泡直接显示填写内容，不启动 agent、不写终端。支持同样的单次、延时和每日循环。
 
 后台模式不使用用户终端或用户指定目录，内部目录为 app-local-data 下 `scheduled-agent`；经 stdin 传消息，每次新会话，沿用本机登录与配置，不绕过权限检查。最多并行 4 个，30 分钟超时，stdout/stderr 各保留最多 16 KiB，Job Object 回收后代。取消不能撤回已到服务商的请求。

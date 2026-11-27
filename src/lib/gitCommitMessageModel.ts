@@ -1,10 +1,9 @@
 import type { ClaudeProvider } from "@/modules/settings/store";
 
 export const GIT_COMMIT_MESSAGE_MODELS = {
-  luna: "Codex · GPT-6 Luna（快速）",
-  "codex-default": "Codex · 默认模型",
-  "claude-default": "Claude Code · 默认模型",
-  "agy-default": "Antigravity CLI · 默认模型",
+  "codex-fast": "Codex · GPT-6 Luna（低推理）",
+  "claude-fast": "Claude Code · Haiku",
+  "agy-fast": "Anti · Gemini 4 Hydrogen（低推理）",
 } as const;
 
 type BuiltinModel = keyof typeof GIT_COMMIT_MESSAGE_MODELS;

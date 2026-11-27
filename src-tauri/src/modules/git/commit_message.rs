@@ -65,15 +65,15 @@ pub(super) fn generate(
         patches.iter().enumerate().map(|(index, patch)| format!("Repository {}\n```diff\n{patch}\n```", index + 1)).collect::<Vec<_>>().join("\n\n")
     );
     let message = match model {
-        GitCommitMessageModel::Luna => run_codex(app, prompt, true)?,
-        GitCommitMessageModel::CodexDefault => run_codex(app, prompt, false)?,
-        GitCommitMessageModel::ClaudeDefault => run_claude(app, prompt)?,
-        GitCommitMessageModel::AgyDefault => crate::modules::agy::run_prompt(
+        GitCommitMessageModel::CodexFast => run_codex(app, prompt)?,
+        GitCommitMessageModel::ClaudeFast => run_claude(app, prompt)?,
+        GitCommitMessageModel::AgyFast => crate::modules::agy::run_prompt(
             &working_directory(app)?,
             prompt,
             Duration::from_secs(120),
             || false,
             true,
+            Some("gemini-4-hydrogen-low"),
         )?,
         GitCommitMessageModel::Gateway => {
             let selected = gateway_model.ok_or("未选定转发模型")?;
@@ -100,24 +100,21 @@ fn working_directory(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
     Ok(directory)
 }
 
-fn run_codex(app: &tauri::AppHandle, prompt: String, luna: bool) -> Result<String, String> {
+fn run_codex(app: &tauri::AppHandle, prompt: String) -> Result<String, String> {
     let executable = which::which("codex.exe")
         .or_else(|_| which::which("codex.cmd"))
         .map_err(|e| format!("找不到 Codex，请先安装并登录 CLI：{e}"))?;
     let directory = working_directory(app)?;
     let answer = tempfile::NamedTempFile::new_in(&directory).map_err(|e| e.to_string())?;
     let mut command = Command::new(executable);
-    command.current_dir(&directory).arg("exec");
-    if luna {
-        command.args([
+    command
+        .current_dir(&directory)
+        .args([
+            "exec",
             "--model",
             "gpt-6-luna",
             "--config",
             "model_reasoning_effort=low",
-        ]);
-    }
-    command
-        .args([
             "--skip-git-repo-check",
             "--ephemeral",
             "--sandbox",
@@ -128,13 +125,7 @@ fn run_codex(app: &tauri::AppHandle, prompt: String, luna: bool) -> Result<Strin
         ])
         .arg(answer.path())
         .arg("-");
-    background::run(&mut command, prompt, Duration::from_secs(120), || false).map_err(|error| {
-        if luna {
-            format!("{error}\n如果当前 Codex 不支持 GPT-6 Luna，请在「设置 → 通用 → Git」中选择「Codex · 默认模型」。")
-        } else {
-            error
-        }
-    })?;
+    background::run(&mut command, prompt, Duration::from_secs(120), || false)?;
     std::fs::read_to_string(answer.path()).map_err(|e| e.to_string())
 }
 
@@ -145,6 +136,8 @@ fn run_claude(app: &tauri::AppHandle, prompt: String) -> Result<String, String> 
     let mut command = Command::new(executable);
     command.current_dir(working_directory(app)?).args([
         "--print",
+        "--model",
+        "haiku",
         "--output-format",
         "text",
         "--no-session-persistence",

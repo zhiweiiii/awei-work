@@ -251,7 +251,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   } as ClaudeGatewayConfig,
   explorerGitDecorations: true,
   protectedBranches: ["main", "master", "develop"],
-  gitCommitMessageModel: "luna",
+  gitCommitMessageModel: "codex-fast",
   terminalWebglEnabled: true,
   terminalCursorBlink: false,
   terminalCursorStyle: "bar",

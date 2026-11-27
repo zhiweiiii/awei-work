@@ -118,10 +118,10 @@ export function SettingsApp() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <header
         data-tauri-drag-region
-        className="flex h-11 shrink-0 items-center border-b border-border/60 bg-card/60 pr-0 pl-3"
+        className="flex h-11 shrink-0 select-none items-center border-b border-border/60 bg-card/60 pr-0 pl-3"
       >
         <Tabs
           value={active}

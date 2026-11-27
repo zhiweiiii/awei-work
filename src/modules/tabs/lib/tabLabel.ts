@@ -18,3 +18,15 @@ export function labelFor(t: Tab): string {
   const parts = t.cwd.split(/[\\/]/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : "/";
 }
+
+export function splitProjectBadge(label: string): {
+  icon: string;
+  rest: string;
+} {
+  const chars = Array.from(label.trim());
+  if (chars.length === 0) return { icon: "?", rest: "" };
+  return {
+    icon: chars.slice(0, 2).join(""),
+    rest: chars.slice(2).join(""),
+  };
+}

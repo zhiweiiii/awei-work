@@ -317,7 +317,7 @@ export const native = {
   gitGenerateCommitMessage: (
     repoRoots: string[],
     workspace: WorkspaceEnv = currentWorkspaceEnv(),
-    model: GitCommitMessageBackend = "luna",
+    model: GitCommitMessageBackend = "codex-fast",
     gatewayModel?: { provider: ClaudeProvider; model: string },
   ) =>
     invoke<string>("git_generate_commit_message", {

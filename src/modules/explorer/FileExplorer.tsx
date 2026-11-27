@@ -886,7 +886,7 @@ export const FileExplorer = memo(
                 ref={scrollRef}
                 data-explorer-drop=""
                 className={cn(
-                  "min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]",
+                  "min-h-0 min-w-0 flex-1 select-none overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]",
                   rootIsDropTarget &&
                     "rounded-sm ring-1 ring-inset ring-primary/50",
                 )}

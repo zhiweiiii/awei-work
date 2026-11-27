@@ -764,10 +764,9 @@ function ScopedSourceControlPanel({
     const { gitCommitMessageModel, claudeGateway } =
       usePreferencesStore.getState();
     const backend =
-      gitCommitMessageModel === "luna" ||
-      gitCommitMessageModel === "codex-default" ||
-      gitCommitMessageModel === "claude-default" ||
-      gitCommitMessageModel === "agy-default"
+      gitCommitMessageModel === "codex-fast" ||
+      gitCommitMessageModel === "claude-fast" ||
+      gitCommitMessageModel === "agy-fast"
         ? gitCommitMessageModel
         : "gateway";
     const gatewayModel =

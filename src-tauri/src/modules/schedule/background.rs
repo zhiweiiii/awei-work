@@ -27,6 +27,7 @@ pub(super) fn run(app: &tauri::AppHandle, job: &Job) -> Result<String, String> {
             timeout,
             cancelled,
             false,
+            None,
         );
     }
     let executable = match job.target {

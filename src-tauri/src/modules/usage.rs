@@ -12,6 +12,7 @@
 //! for a human, so parsing is best effort and the raw text is always kept.
 
 use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -20,8 +21,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::{json, Value};
 use shared_child::SharedChild;
-
-use crate::modules::workspace::WorkspaceEnv;
 
 const MIN_REFETCH: Duration = Duration::from_secs(300);
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -137,22 +136,19 @@ fn drain<R: std::io::Read>(reader: &mut R) -> Vec<u8> {
 }
 
 fn fetch() -> Usage {
-    // Quoted so the shell hands `/usage` over as one argument. Git Bash would
-    // otherwise translate a leading slash into a Windows path, which is exactly
-    // how this gets mistaken for a missing feature.
-    let command = "claude -p \"/usage\"";
-    let mut cmd =
-        match crate::modules::shell::build_oneshot_command(command, &WorkspaceEnv::Local, None) {
-            Ok(cmd) => cmd,
-            Err(message) => {
-                return Usage {
-                    fetched_at: now_secs(),
-                    error: Some(message),
-                    ..Usage::default()
-                }
-            }
-        };
-    cmd.stdin(Stdio::null())
+    let executable = match which::which("claude.exe").or_else(|_| which::which("claude.cmd")) {
+        Ok(path) => path,
+        Err(error) => {
+            return Usage {
+                fetched_at: now_secs(),
+                error: Some(format!("找不到 Claude Code：{error}")),
+                ..Usage::default()
+            };
+        }
+    };
+    let mut cmd = Command::new(executable);
+    cmd.args(["-p", "/usage"])
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     crate::modules::proc::hide_console(&mut cmd);
@@ -331,16 +327,57 @@ fn codex_usage_from_response(response: &Value) -> Result<CodexUsage, String> {
     })
 }
 
+#[cfg(windows)]
+fn codex_usage_executable() -> Result<PathBuf, which::Error> {
+    if let Ok(path) = which::which("codex.exe") {
+        return Ok(path);
+    }
+    let shim = which::which("codex.cmd")?;
+    let Some(directory) = shim.parent() else {
+        return Ok(shim);
+    };
+    let (architecture, target) = match std::env::consts::ARCH {
+        "x86_64" => ("x64", "x86_64-pc-windows-msvc"),
+        "aarch64" => ("arm64", "aarch64-pc-windows-msvc"),
+        _ => return Ok(shim),
+    };
+    let scope = directory.join("node_modules").join("@openai");
+    let cli = scope.join("codex");
+    let platform = format!("codex-win32-{architecture}");
+    Ok([
+        cli.join("node_modules").join("@openai").join(&platform),
+        scope.join(platform),
+        cli,
+    ]
+    .into_iter()
+    .map(|package| {
+        package
+            .join("vendor")
+            .join(target)
+            .join("bin")
+            .join("codex.exe")
+    })
+    .find(|path| path.is_file())
+    .unwrap_or(shim))
+}
+
 /// Ask one short-lived Codex app-server instance for its account rate limits.
 /// It is deliberately not reused: the terminal runs Codex independently, and
 /// this request must neither attach to nor alter that interactive session.
 fn fetch_codex() -> CodexUsage {
-    let mut command = if cfg!(windows) {
-        // npm installs Codex as `codex.cmd` on Windows. Executing that shim
-        // directly preserves stdin/stdout JSON-RPC pipes (unlike a shell).
-        Command::new("codex.cmd")
-    } else {
-        Command::new("codex")
+    #[cfg(windows)]
+    let executable = codex_usage_executable();
+    #[cfg(not(windows))]
+    let executable = which::which("codex");
+    let mut command = match executable {
+        Ok(path) => Command::new(path),
+        Err(error) => {
+            return CodexUsage {
+                fetched_at: now_secs(),
+                error: Some(format!("找不到 Codex：{error}")),
+                ..CodexUsage::default()
+            };
+        }
     };
     command
         .args(["app-server", "--stdio"])
@@ -544,8 +581,8 @@ fn agy_quota_window(buckets: &[Value], period: &str) -> Option<AgyQuotaWindow> {
     })
 }
 
-fn parse_agy_usage(output: &str) -> Result<Vec<AgyQuotaGroup>, String> {
-    let value: Value = serde_json::from_str(output).map_err(|_| "无法解析 agy 用量输出")?;
+fn parse_agy_usage(output: &[u8]) -> Result<Vec<AgyQuotaGroup>, String> {
+    let value: Value = serde_json::from_slice(output).map_err(|_| "无法解析 agy 用量输出")?;
     if value["status"] != "SUCCESS"
         || value["command"]["name"] != "usage"
         || value["num_turns"].as_u64() != Some(0)
@@ -578,25 +615,26 @@ fn parse_agy_usage(output: &str) -> Result<Vec<AgyQuotaGroup>, String> {
 fn fetch_agy() -> Result<Vec<AgyQuotaGroup>, String> {
     let executable = crate::modules::pty::shell_init::agy_executable()
         .ok_or("找不到 Antigravity CLI，请先安装并登录 agy")?;
-    let mut cmd = portable_pty::CommandBuilder::new(executable);
-    cmd.cwd(std::env::temp_dir());
-    cmd.env("NO_COLOR", "1");
-    cmd.args([
-        "--print",
-        "/usage",
-        "--output-format",
-        "json",
-        "--print-timeout",
-        "15s",
-    ]);
-    let output = crate::modules::pty::capture_console(cmd, Duration::from_secs(20))
-        .map_err(|_| "读取 Antigravity 用量失败，请确认 agy 已登录并可运行 /usage")?;
-    let json = output
-        .find('{')
-        .zip(output.rfind('}'))
-        .and_then(|(start, end)| output.get(start..=end))
-        .ok_or("agy 未返回用量 JSON")?;
-    parse_agy_usage(json)
+    let mut cmd = Command::new(executable);
+    cmd.current_dir(std::env::temp_dir())
+        .env("NO_COLOR", "1")
+        .env("AGY_CLI_DISABLE_AUTO_UPDATE", "true")
+        .args([
+            "--print",
+            "/usage",
+            "--output-format",
+            "json",
+            "--print-timeout",
+            "15s",
+        ]);
+    let error = "读取 Antigravity 用量失败，请确认 agy 已登录并可运行 /usage";
+    let output =
+        crate::modules::proc::capture::capture(&mut cmd, Duration::from_secs(20), 256 * 1024)
+            .map_err(|_| error)?;
+    if !output.status.success() {
+        return Err(error.into());
+    }
+    parse_agy_usage(&output.stdout)
 }
 
 #[tauri::command]

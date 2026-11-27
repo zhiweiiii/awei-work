@@ -74,6 +74,9 @@ export function normalizePreference(
   };
   switch (key) {
     case "gitCommitMessageModel":
+      if (value === "claude-default") return "claude-fast";
+      if (value === "agy-default") return "agy-fast";
+      if (value === "codex-default" || value === "luna") return "codex-fast";
       return isGitCommitMessageModel(value) ? value : fallback;
     case "diffContextLines":
       return typeof value === "number" && [4, 8, 16, 32].includes(value)

@@ -7,7 +7,7 @@ export type AgentResume = {
   cwd: string;
   lastUserMessageAt?: number;
 };
-export const RESTORE_PROJECT_LIMIT = 5;
+export const RESTORE_PROJECT_LIMIT = 10;
 
 export async function hydrateProjectMessageTimes(
   tabs: Tab[],
